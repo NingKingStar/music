@@ -9,6 +9,9 @@ import com.muses.player.core.data.repository.SongRepository
 import com.muses.player.core.data.repository.AlbumRepository
 import com.muses.player.core.data.repository.ArtistRepository
 import com.muses.player.core.data.repository.SettingsRepository
+import com.muses.player.core.data.repository.SearchHistoryStore
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.catch
 import com.muses.player.core.lxsdk.LxQuality
 import com.muses.player.core.lxsdk.LxScriptRepository
 import com.muses.player.core.model.online.OnlineTrackSession
@@ -17,6 +20,7 @@ import com.muses.player.core.search.OnlineSearchResult
 import com.muses.player.core.search.OnlineSearchService
 import com.muses.player.core.search.PlatformSearchOutcome
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -100,6 +104,7 @@ class OnlineSearchViewModel(
     private val artistRepository: ArtistRepository,
     /** 在线曲目归属的音源 id（脚本仓库按平台路由，此值仅作标识） */
     private val onlineSourceId: String = "online",
+    private val historyStore: SearchHistoryStore? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
@@ -110,6 +115,46 @@ class OnlineSearchViewModel(
         ),
     )
     val state: StateFlow<OnlineSearchUiState> = _state.asStateFlow()
+    val recentSearches = (historyStore?.entries ?: flowOf(emptyList()))
+        .catch { emit(emptyList()) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private var historyJob: Job? = null
+    private var draftHistory: String? = null
+    private var confirmedHistory: String? = null
+    private var historyGeneration = 0L
+
+    private fun rememberSearch(keyword: String, draft: Boolean = false) {
+        if (draft && confirmedHistory == keyword) return
+        historyJob?.cancel()
+        if (keyword.isBlank() || historyStore == null) return
+        if (!draft) confirmedHistory = keyword
+        historyJob = viewModelScope.launch {
+            if (draft) delay(1_200)
+            if (keyword != _state.value.keyword.trim()) return@launch
+            try {
+                val editedDraft = draftHistory?.takeIf { keyword.startsWith(it) || it.startsWith(keyword) }
+                historyStore.record(keyword, editedDraft)
+                draftHistory = if (draft) keyword else null
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { _state.value = _state.value.copy(message = "搜索记录保存失败，搜索仍可使用") }
+        }
+    }
+
+    fun searchHistory(keyword: String) { updateKeyword(keyword); search() }
+    fun removeHistory(keyword: String) {
+        historyGeneration++
+        historyJob?.cancel(); draftHistory = null; confirmedHistory = null
+        viewModelScope.launch { try { historyStore?.remove(keyword) }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { _state.value = _state.value.copy(message = "删除搜索记录失败，请重试") } }
+    }
+    fun clearHistory() {
+        historyGeneration++
+        historyJob?.cancel(); draftHistory = null; confirmedHistory = null
+        viewModelScope.launch { try { historyStore?.clear() }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { _state.value = _state.value.copy(message = "清空搜索记录失败，请重试") } }
+    }
 
     private val submittedKeyword = MutableStateFlow("")
     private val lyricSearchRevision = MutableStateFlow(0L)
@@ -136,8 +181,8 @@ class OnlineSearchViewModel(
         submittedKeyword,
         state.map { it.category }.distinctUntilChanged(),
         lyricSearchRevision,
-    ) { keyword, category, _ -> keyword to category }.flatMapLatest { (keyword, category) ->
-        if (keyword.isBlank() || category != SearchCategory.LYRICS) flowOf(LibraryLyricsResults())
+    ) { keyword, category, revision -> Triple(keyword, category, revision) }.flatMapLatest { (keyword, category, _) ->
+        if (keyword.isBlank() || category != SearchCategory.ALL) flowOf(LibraryLyricsResults())
         else songRepository.observeSongs().mapLatest { songs ->
             withContext(Dispatchers.Default) {
                 val matches = songs.mapNotNull { song ->
@@ -151,6 +196,7 @@ class OnlineSearchViewModel(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LibraryLyricsResults())
 
     private var searchJob: Job? = null
+    private var autoSearchJob: Job? = null
     private var searchSeq = 0L
 
     /**
@@ -191,15 +237,51 @@ class OnlineSearchViewModel(
     private fun currentQuality(): LxQuality? = LxQuality.fromKey(preferredQuality.value)
 
     fun updateKeyword(value: String) {
+        val previous = _state.value.keyword.trim()
         _state.value = _state.value.copy(keyword = value)
+        val keyword = value.trim()
+        if (keyword == previous) return
+        confirmedHistory = null
+        historyJob?.cancel()
+        cancelPendingSearch()
+        // 输入变化时立即作废旧请求，包括正在返回的分页。
+        searchSeq++
+        searchJob?.cancel()
+        searchJob = null
+        _state.value = _state.value.copy(
+            searching = false,
+            message = null,
+            platforms = _state.value.platforms.map { it.copy(loading = false, loadingMore = false) },
+        )
+        if (keyword.isEmpty()) {
+            draftHistory = null
+            confirmedHistory = null
+            submittedKeyword.value = ""
+            _state.value = _state.value.copy(
+                searched = false, searchedKeyword = "",
+                platforms = _state.value.platforms.map {
+                    PlatformSearchState(it.platform, it.displayName)
+                },
+            )
+            return
+        }
+        autoSearchJob = viewModelScope.launch {
+            delay(AUTO_SEARCH_DELAY_MS)
+            search(keyword)
+        }
+    }
+
+    private fun cancelPendingSearch() {
+        autoSearchJob?.cancel()
+        autoSearchJob = null
     }
 
     /**
      * 预填关键词（首页搜索框带入）。
-     * 只改 keyword，不动已搜结果：调用方随后自行调 [search] 触发新搜索。
+     * 沿用输入的自动搜索逻辑，调用方也可随后调 [search] 立即搜索。
      */
     fun prefillKeyword(value: String) {
-        _state.value = _state.value.copy(keyword = value)
+        updateKeyword(value)
     }
 
     fun setFilter(platform: String?) {
@@ -208,42 +290,46 @@ class OnlineSearchViewModel(
 
     /** 发起搜索（覆盖式）：重置全部平台状态后并行搜索 */
     fun search() {
-        search(_state.value.keyword.trim())
+        cancelPendingSearch()
+        val keyword = _state.value.keyword.trim()
+        rememberSearch(keyword)
+        if (_state.value.searching && _state.value.searchedKeyword == keyword) return
+        search(keyword)
     }
 
     fun setCategory(category: SearchCategory) {
         if (_state.value.category == category) return
         _state.value = _state.value.copy(category = category)
-        if (_state.value.searched) search(_state.value.searchedKeyword)
+        if (_state.value.keyword.isNotBlank() && _state.value.keyword.trim() != _state.value.searchedKeyword) {
+            cancelPendingSearch()
+            search(_state.value.keyword.trim())
+        }
     }
 
     fun refreshLyrics() {
-        if (_state.value.searchedKeyword.isNotBlank()) search(_state.value.searchedKeyword)
+        if (_state.value.keyword.isNotBlank()) search()
     }
 
-    /** 重查已经提交的关键词，保留输入框里的未提交修改和平台筛选。 */
+    /** 刷新当前输入的关键词，保留平台筛选。 */
     suspend fun refresh() {
-        val keyword = _state.value.searchedKeyword
+        val keyword = _state.value.keyword.trim()
         if (keyword.isBlank()) return
-        search(keyword)
+        cancelPendingSearch()
+        search(keyword, forceRefresh = true)
         searchJob?.join()
     }
 
-    private fun search(keyword: String) {
+    private fun search(keyword: String, forceRefresh: Boolean = false) {
         if (keyword.isEmpty()) {
             _state.value = _state.value.copy(message = "请输入搜索关键词")
             return
         }
         submittedKeyword.value = keyword
         val requestSeq = ++searchSeq
+        val historyVersion = historyGeneration
         searchJob?.cancel()
-        if (_state.value.category == SearchCategory.LYRICS) {
-            lyricSearchRevision.value++
-            _state.value = _state.value.copy(
-                searching = false, searched = true, searchedKeyword = keyword, message = null,
-            )
-            return
-        }
+        searchJob = null
+        lyricSearchRevision.value++
         refreshAvailableQualities()
         searchJob = viewModelScope.launch {
             _state.value = _state.value.copy(
@@ -259,20 +345,21 @@ class OnlineSearchViewModel(
                     )
                 },
             )
-            val outcomes = searchService.searchAll(keyword, page = 1, pageSize = DEFAULT_PAGE_SIZE)
+            val outcomes = searchService.searchAll(keyword, page = 1, pageSize = DEFAULT_PAGE_SIZE, forceRefresh = forceRefresh)
             if (requestSeq != searchSeq) return@launch
             applyOutcomes(outcomes, page = 1)
             _state.value = _state.value.copy(searching = false)
+            if (historyVersion == historyGeneration && outcomes.any { it is PlatformSearchOutcome.Success }) rememberSearch(keyword, draft = true)
         }
     }
 
     /** 加载更多（仅对当前筛选的平台，或全部平台） */
     fun loadMore(platform: String) {
         val keyword = _state.value.searchedKeyword
-        if (keyword.isEmpty()) return
+        if (keyword.isEmpty() || keyword != _state.value.keyword.trim()) return
         val current = _state.value.platforms.firstOrNull { it.platform == platform } ?: return
         if (current.loading || current.loadingMore || !current.hasMore) return
-        val requestSearch = searchJob
+        val requestSeq = searchSeq
 
         viewModelScope.launch {
             updatePlatform(platform) { it.copy(loadingMore = true) }
@@ -281,7 +368,7 @@ class OnlineSearchViewModel(
                 searchService.search(platform, keyword, page = nextPage, pageSize = DEFAULT_PAGE_SIZE)
             }
             // 刷新或切换关键词后，不让旧分页结果拼进新的首屏。
-            if (searchJob !== requestSearch) return@launch
+            if (requestSeq != searchSeq) return@launch
             applyOutcomes(
                 listOf(
                     outcome.fold(
@@ -307,8 +394,10 @@ class OnlineSearchViewModel(
      * 在线直链会过期，故每次播放都重新解析（由播放链路负责）。
      */
     fun playResult(platform: String, index: Int) {
+        if (_state.value.keyword.trim() != _state.value.searchedKeyword) return
         val platformState = _state.value.platforms.firstOrNull { it.platform == platform } ?: return
         val target = platformState.results.getOrNull(index) ?: return
+        rememberSearch(_state.value.searchedKeyword)
         val quality = currentQuality()?.key
         val songs: List<Song> = platformState.results.map { it.toSong(onlineSourceId, quality) }
         // 立即登记并切换所选歌曲；脚本加载和失败提示由播放解析链路处理。
@@ -316,7 +405,24 @@ class OnlineSearchViewModel(
         playback.play(target.toSong(onlineSourceId, quality).id, songs)
     }
 
+    /** 合并结果按屏幕顺序入队；手动选择其他来源只替换当前歌曲。 */
+    fun playGroupedResult(target: OnlineSearchResult) {
+        if (_state.value.keyword.trim() != _state.value.searchedKeyword) return
+        val groups = groupSearchResults(_state.value.platforms)
+        val selected = groups.indexOfFirst { target in it }
+        if (selected < 0) return
+        rememberSearch(_state.value.searchedKeyword)
+        val quality = currentQuality()?.key
+        val songs = groups.mapIndexed { index, group ->
+            (if (index == selected) target else group.first()).toSong(onlineSourceId, quality)
+        }
+        OnlineTrackSession.remember(songs)
+        playback.play(songs[selected].id, songs)
+    }
+
     fun playLibrarySong(songId: String, songs: List<Song>) {
+        if (_state.value.keyword.trim() != _state.value.searchedKeyword) return
+        rememberSearch(_state.value.searchedKeyword)
         playback.play(songId, songs)
     }
 
@@ -374,6 +480,7 @@ class OnlineSearchViewModel(
     }
 
     private companion object {
+        const val AUTO_SEARCH_DELAY_MS = 350L
         /** 默认每页条数；咪咕会固定返回 20（其 provider 内部处理） */
         const val DEFAULT_PAGE_SIZE = 20
 

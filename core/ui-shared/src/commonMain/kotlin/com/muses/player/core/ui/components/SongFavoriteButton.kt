@@ -35,7 +35,7 @@ fun SongFavoriteButton(song: Song, likedTint: Color = Color.Unspecified, unliked
         onClick = { setLiked(song, !liked) },
         imageVector = if (liked) TablerIcons.HeartFill else TablerIcons.Heart,
         contentDescription = if (liked) "取消我喜欢" else "标记我喜欢",
-        enabled = favorites.loaded && !favorites.isInLibrary(song),
+        enabled = favorites.loaded,
         tint = if (liked) likedTint.takeUnless { it == Color.Unspecified } ?: MiuixTheme.colorScheme.primary
             else unlikedTint.takeUnless { it == Color.Unspecified } ?: MiuixTheme.colorScheme.onSurfaceVariantSummary,
     )

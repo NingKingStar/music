@@ -51,6 +51,7 @@ import top.yukonga.miuix.kmp.utils.pressable
 /** 探索首页：平台推荐歌单、AI 猜你喜欢和主要榜单。 */
 @Composable
 fun HomeScreen(
+    onOpenSearch: () -> Unit,
     onOpenRecommendations: () -> Unit,
     onOpenCharts: () -> Unit,
     onOpenChart: (platform: String, chartId: String, title: String) -> Unit,
@@ -73,7 +74,18 @@ fun HomeScreen(
         modifier = Modifier.fillMaxSize(),
         containerColor = scheme.surface,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = { MusesTopBar(title = "探索") },
+        topBar = { MusesTopBar(title = "探索", bottomContent = {
+            Card(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()) {
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 48.dp).homeCardClick(onOpenSearch).padding(horizontal = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Icon(TablerIcons.Search, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Text("搜索歌曲、歌手、专辑", color = scheme.onBackgroundVariant, fontSize = 15.sp)
+                }
+            }
+        }) },
     ) { padding ->
         MusesPullToRefresh(
             isRefreshing = state.featured.loading || state.chart.loadingCharts || state.chart.refreshingCharts,

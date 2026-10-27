@@ -13,6 +13,7 @@ val shellModule = module {
     single { com.muses.player.sync.WebDavSyncManager(get(), get(), get(), get(), get(), get(), get(), scriptRepository = get()) }
     single { com.muses.player.core.download.DownloadQueueStore(get()) }
     single { com.muses.player.core.data.repository.FavoriteSongsStore(get(), get()) }
+    single { com.muses.player.core.data.repository.UserPlaylistStore(get()) }
     single { com.muses.player.download.DownloadManager(get(), get(), get(), get(), get(), get(),
         getOrNull<OnlineTrackMetadataResolver>() ?: NoOpOnlineTrackMetadataResolver,
         getOrNull<LyricsMatcher>(), com.muses.player.download.createDownloadStorage(get()),

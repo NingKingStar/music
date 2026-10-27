@@ -15,7 +15,7 @@ class FavoriteSongsIdentityTest {
         val local = saved.copy(artist = "歌手甲、歌手乙")
         val other = online.copy(artist = "歌手甲/歌手乙")
         val library = FavoriteSongsState(library = listOf(local), loaded = true)
-        assertTrue(library.isLiked(other))
+        assertFalse(library.isLiked(other))
         assertTrue(library.isInLibrary(other))
         val liked = FavoriteSelection(DownloadTrack.from(local), true)
         assertTrue(FavoriteSongsState(selections = listOf(liked)).isLiked(other))
@@ -25,9 +25,9 @@ class FavoriteSongsIdentityTest {
         assertFalse(library.isLiked(other.copy(artist = "歌手甲")))
     }
 
-    @Test fun `曲库已喜欢歌曲的另一语言名称也显示爱心`() {
+    @Test fun `曲库存在同曲不自动标记喜欢`() {
         val state = FavoriteSongsState(library = listOf(saved), loaded = true)
-        assertTrue(state.isLiked(online))
+        assertFalse(state.isLiked(online))
         assertTrue(state.isInLibrary(online))
         assertFalse(state.isLiked(online.copy(artist = "另一歌手")))
     }

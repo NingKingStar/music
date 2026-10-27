@@ -58,6 +58,24 @@ internal fun catalogMetadata(platform: String, item: JsonObject): Map<String, St
         else -> null
     }
     quality?.let { put("catalogQuality", it) }
+    // 只保存目录中明确出现的档位；缺失字段并不能证明其他档位不存在。
+    val tiers = when (platform) {
+        "tx" -> item.obj("file")?.let { file ->
+            listOf("128k" to "size_128mp3", "320k" to "size_320mp3", "flac" to "size_flac", "hires" to "size_hires")
+                .filter { (_, field) -> (file.long(field) ?: 0) > 0 }.map { it.first }
+        }.orEmpty()
+        "kw" -> {
+            val bitrates = Regex("bitrate:(\\d+),format:\\w+,size:([\\w.]+)")
+                .findAll(item.str("N_MINFO").orEmpty()).mapNotNull { match ->
+                    val size = match.groupValues[2].takeWhile { it.isDigit() || it == '.' }.toDoubleOrNull()
+                    match.groupValues[1].toIntOrNull()?.takeIf { size != null && size > 0 }
+                }.toSet()
+            listOf(128 to "128k", 192 to "192k", 320 to "320k", 2000 to "flac", 4000 to "hires")
+                .filter { it.first in bitrates }.map { it.second }
+        }
+        else -> emptyList()
+    }
+    if (tiers.isNotEmpty()) put("catalogQualityTiers", tiers.joinToString(","))
     // 只接受平台明确给出的原唱文字标签，不从歌曲名、版权或歌手信息推断。
     val tags = item.arr("tags").orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }
     if ("原唱" in tags) put("catalogPerformance", "original")

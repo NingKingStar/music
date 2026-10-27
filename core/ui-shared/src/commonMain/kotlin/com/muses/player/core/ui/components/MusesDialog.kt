@@ -58,14 +58,14 @@ fun MusesDialog(
                 ) {
                     if (dismissText != null) {
                         MusesTextButton(
-                            text = if (hasTwoActions) "取消" else dismissText,
+                            text = dismissText,
                             onClick = onDismiss,
                             modifier = if (hasTwoActions) Modifier.weight(1f) else Modifier,
                         )
                     }
                     if (confirmText != null) {
                         MusesTextButton(
-                            text = if (hasTwoActions) "确定" else confirmText,
+                            text = confirmText,
                             onClick = onConfirm,
                             enabled = confirmEnabled && !confirmLoading,
                             primary = true,

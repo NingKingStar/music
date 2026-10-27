@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -318,7 +319,12 @@ class PlayerViewModel constructor(
     private fun observeCurrentSong() {
         viewModelScope.launch {
             playback.currentSongId
-                .flatMapLatest { songId -> currentTrackFlow(songId) }
+                .flatMapLatest { songId -> currentTrackFlow(songId).onStart {
+                    _nowPlayingMeta.value = null
+                    _stickyCover.value = null
+                    _dbDuration.value = 0L
+                    applyLyricsDocument(null)
+                } }
                 // collectLatest：切歌时取消上一首尚未完成的封面/歌词拉取
                 .collectLatest { track -> refreshCurrentTrack(track) }
         }
@@ -347,7 +353,9 @@ class PlayerViewModel constructor(
 
         // 兜底封面：扫描未读到内嵌封面时，回退到播放器实时 metadata artwork
         // （对齐 app/NowPlayingUiState mediaMetadata 兜底链路，沉浸页封面缺失修复）
-        val metadataArtwork = playback.artworkUri.value?.takeIf { it.isNotBlank() }
+        val trackId = track?.toMeta()?.songId
+        if (trackId != playback.currentSongId.value) return
+        val metadataArtwork = playback.currentMeta.value?.takeIf { it.songId == trackId }?.coverUri?.takeIf { it.isNotBlank() }
         try {
             when (track) {
                 null -> {
@@ -419,6 +427,7 @@ class PlayerViewModel constructor(
         val ref = OnlineTrackRef.parse(song.path)
 
         // ① 立即取一次脚本元数据 + 上屏（歌词：脚本逐字 > 匹配结果 > 脚本行级）
+        song.coverUri?.takeIf { it.isNotBlank() }?.let { publishOnlineCover(song.id, it) }
         var script = scriptMetadata(ref)
         var cover = script?.cover?.takeIf { it.isNotBlank() }
             ?: song.coverUri?.takeIf { it.isNotBlank() }

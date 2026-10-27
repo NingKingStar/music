@@ -4,7 +4,7 @@ import com.muses.player.core.ui.icons.TablerIcons
 import top.yukonga.miuix.kmp.nav.core.NavKey
 
 /**
- * 顶层导航项：底栏为探索/曲库/我的，搜索由独立主导航按钮进入；曲库内部提供歌曲/专辑/艺术家，
+ * 顶层导航项：探索/歌单/我的，搜索由探索顶部进入；原曲库由“我的”进入，
  * 我的页面提供音源/刮削/统计/历史记录/设置。
  *
  * 路由本体已类型化（[MusesRoute]，miuix-nav @Serializable 密封层级）；
@@ -26,7 +26,7 @@ enum class NavDestination(
     Search(MusesRoute.OnlineSearch(), "搜索", TablerIcons.Search),
 
     // ---- 主菜单（曲库）：primaryNavItems = navItems.slice(0, 4) ----
-    Songs(MusesRoute.Songs, "歌曲", TablerIcons.MusicNote),            // music (Music)
+    Songs(MusesRoute.Songs, "歌单", TablerIcons.QueueMusic),
     Albums(MusesRoute.Albums, "专辑", TablerIcons.Album),               // albums (Disc)
     Artists(MusesRoute.Artists, "艺术家", TablerIcons.Person),          // user (MicVocal)
 
@@ -38,15 +38,15 @@ enum class NavDestination(
     /** 对照 TabsPage.vue 的 isNavActive(item)：tab 本体 + 其详情/子页均算激活 */
     fun isActive(key: NavKey?): Boolean = when (this) {
         Home -> key == MusesRoute.Home || key is MusesRoute.HomeCollection ||
-            key is MusesRoute.ChartDetail || key is MusesRoute.PlaylistDetail
+            key is MusesRoute.ChartDetail || key is MusesRoute.PlaylistDetail || key is MusesRoute.OnlineSearch
         Search -> key is MusesRoute.OnlineSearch
-        Songs -> key == MusesRoute.Songs || key == MusesRoute.Albums ||
-            key == MusesRoute.Artists || key is MusesRoute.AlbumDetail ||
-            key is MusesRoute.ArtistDetail
+        Songs -> key == MusesRoute.Songs || key is MusesRoute.UserCollection
         Albums -> key == MusesRoute.Albums || key is MusesRoute.AlbumDetail
         Artists -> key == MusesRoute.Artists || key is MusesRoute.ArtistDetail
         Scrape -> key == MusesRoute.Scrape || key is MusesRoute.ScrapeReview
         Mine -> key == MusesRoute.Mine || key == MusesRoute.Settings ||
+            key == MusesRoute.LocalLibrary || key == MusesRoute.Albums || key == MusesRoute.Artists ||
+            key is MusesRoute.AlbumDetail || key is MusesRoute.ArtistDetail ||
             key == MusesRoute.Downloads ||
             key == MusesRoute.Statistics || key == MusesRoute.History ||
             key is MusesRoute.AiSettings ||
@@ -57,10 +57,24 @@ enum class NavDestination(
     }
 
     companion object {
-        /** 主导航组（探索、搜索与曲库）。 */
-        val Primary: List<NavDestination> = listOf(Home, Search, Songs, Albums, Artists)
+        /** 主导航组（探索与歌单），工具由“我的”进入。 */
+        val Primary: List<NavDestination> = listOf(Home, Songs)
 
         /** 工具与我的入口 */
         val Secondary: List<NavDestination> = listOf(Scrape, Mine)
+    }
+}
+
+/** 从最近的明确来源推断共享详情页归属，返回时自然恢复原栏；兼容旧恢复栈。 */
+internal fun activeDestination(stack: List<NavKey>): NavDestination {
+    val shared: (NavKey) -> Boolean = {
+        it is MusesRoute.AlbumDetail || it is MusesRoute.ArtistDetail || it == MusesRoute.Downloads
+    }
+    val key = stack.asReversed().firstOrNull { !shared(it) }
+    return when {
+        NavDestination.Songs.isActive(key) -> NavDestination.Songs
+        NavDestination.Home.isActive(key) -> NavDestination.Home
+        key != null -> NavDestination.Mine
+        else -> NavDestination.Mine
     }
 }

@@ -5,6 +5,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import com.muses.player.core.data.store.platformNowMs
 
 /**
  * 在线搜索聚合服务：管理多平台 provider，支持单平台与多平台并行搜索。
@@ -18,7 +21,15 @@ class OnlineSearchService(
     private val providers: List<OnlineSearchProvider>,
     /** 并行搜索的最大并发（默认 3：兼顾速度与风控） */
     private val concurrency: Int = 3,
+    private val cacheTtlMs: Long = 30_000,
+    private val nowMs: () -> Long = { platformNowMs() },
 ) {
+    private data class Query(val platform: String, val keyword: String, val page: Int, val size: Int)
+    private data class Cached(val page: OnlineSearchPage, val time: Long)
+    private val cache = LinkedHashMap<Query, Cached>()
+    private val cacheLock = Any()
+    private val providerLocks = providers.associate { it.platform to Mutex() }
+    private val semaphore = Semaphore(concurrency.coerceAtLeast(1))
 
     /** 平台 key → 展示名（供 UI 渲染筛选/标签） */
     val platformNames: Map<String, String> =
@@ -33,10 +44,21 @@ class OnlineSearchService(
         keyword: String,
         page: Int = 1,
         pageSize: Int = 30,
+        forceRefresh: Boolean = false,
     ): OnlineSearchPage {
         val provider = providers.firstOrNull { it.platform == platform }
             ?: throw OnlineSearchException(platform, "不支持的平台：$platform")
-        return provider.search(keyword, page, pageSize)
+        val query = Query(platform, keyword.trim(), page, pageSize)
+        return providerLocks.getValue(platform).withLock {
+            val cached = synchronized(cacheLock) { cache[query] }
+            if (!forceRefresh && cached != null && nowMs() - cached.time in 0 until cacheTtlMs) return@withLock cached.page
+            val result = semaphore.withPermit { provider.search(query.keyword, page, pageSize) }
+            if (cacheTtlMs > 0) synchronized(cacheLock) {
+                cache[query] = Cached(result, nowMs())
+                while (cache.size > 64) cache.remove(cache.keys.first())
+            }
+            result
+        }
     }
 
     /**
@@ -50,18 +72,18 @@ class OnlineSearchService(
         platforms: List<String> = emptyList(),
         page: Int = 1,
         pageSize: Int = 30,
+        forceRefresh: Boolean = false,
     ): List<PlatformSearchOutcome> {
         val targets = providers.filter { p ->
             platforms.isEmpty() || p.platform in platforms
         }
         if (targets.isEmpty()) return emptyList()
 
-        val semaphore = Semaphore(concurrency.coerceAtLeast(1))
         return coroutineScope {
             targets.map { provider ->
                 async {
-                    semaphore.withPermit {
-                        runCatching { provider.search(keyword, page, pageSize) }
+                    run {
+                        runCatching { search(provider.platform, keyword, page, pageSize, forceRefresh) }
                             .fold(
                                 onSuccess = { PlatformSearchOutcome.Success(it) },
                                 onFailure = { e ->

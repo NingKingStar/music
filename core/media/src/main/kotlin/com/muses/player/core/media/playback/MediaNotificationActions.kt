@@ -73,7 +73,6 @@ internal class MediaNotificationActions(
                     CommandButton.Builder(CommandButton.ICON_UNDEFINED)
                         .setCustomIconResId(if (song != null && state.isLiked(song)) R.drawable.ic_notification_liked else R.drawable.ic_notification_like)
                         .setDisplayName(when {
-                            song != null && state.isInLibrary(song) -> "曲库歌曲已喜欢"
                             song != null && state.isLiked(song) -> "取消我喜欢"
                             else -> "标记我喜欢"
                         })
@@ -121,9 +120,6 @@ internal class MediaNotificationActions(
                             val state = favorites.snapshot()
                             if (session.player.currentMediaItem?.mediaId != songId) {
                                 SessionResult.RESULT_ERROR_INVALID_STATE
-                            } else if (state.isInLibrary(song)) {
-                                showMessage("曲库歌曲固定为我喜欢")
-                                SessionResult.RESULT_SUCCESS
                             } else {
                                 favorites.setLiked(song, !state.isLiked(song))
                                 SessionResult.RESULT_SUCCESS

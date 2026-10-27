@@ -11,6 +11,12 @@ class CatalogMetadataTest {
     private fun metadata(platform: String, raw: String) =
         catalogMetadata(platform, Json.parseToJsonElement(raw).jsonObject)
 
+    @Test fun `只记录目录明确提供的档位`() {
+        assertEquals("128k,flac", metadata("tx", """{"file":{"size_128mp3":10,"size_320mp3":0,"size_flac":90}}""")["catalogQualityTiers"])
+        assertEquals("320k,hires", metadata("kw", """{"N_MINFO":"bitrate:320,format:mp3,size:8M;bitrate:4000,format:flac,size:60M"}""")["catalogQualityTiers"])
+        assertNull(metadata("tx", """{"file":{}}""")["catalogQualityTiers"])
+    }
+
     @Test fun `各平台真实目录字段映射最高音质`() {
         assertEquals("Hi-Res", metadata("tx", """{"file":{"size_hires":100,"size_flac":90}}""")["catalogQuality"])
         assertEquals("HQ", metadata("tx", """{"file":{"size_hires":0,"size_flac":0,"size_320mp3":80}}""")["catalogQuality"])

@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -75,10 +77,10 @@ fun SongListItem(
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
 
-    val bgColor = when {
-        pressed -> scheme.surface.copy(alpha = 0.5f)
-        else -> Color.Transparent
-    }
+    val bgColor by animateColorAsState(
+        if (pressed) scheme.primary.copy(alpha = 0.09f) else Color.Transparent,
+        animationSpec = tween(120), label = "歌曲行按压",
+    )
 
     androidx.compose.runtime.CompositionLocalProvider(
         LocalTextMarqueeEnabled provides LocalSongMarqueeState.current.matches(song.id),

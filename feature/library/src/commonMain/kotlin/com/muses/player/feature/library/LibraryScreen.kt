@@ -59,6 +59,7 @@ fun LibraryScreen(
     onArtistClick: (String) -> Unit,
     modifier: Modifier = Modifier,
     onScanSources: suspend () -> Unit = {},
+    onBack: (() -> Unit)? = null,
 ) {
     val scheme = MiuixTheme.colorScheme
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
@@ -71,7 +72,8 @@ fun LibraryScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             MusesTopBar(
-                title = "曲库",
+                title = "本地与云端音乐",
+                onBack = onBack,
                 actions = {
                     // 顶栏右侧显示当前曲库分类，点按后通过 Miuix 列表弹层切换。
                     Box(contentAlignment = Alignment.CenterEnd) {

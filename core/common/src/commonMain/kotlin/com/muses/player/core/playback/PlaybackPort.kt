@@ -34,6 +34,7 @@ data class PlaybackMeta(
     val artist: String?,
     val album: String?,
     val coverUri: String?,
+    val songId: String? = null,
 )
 
 interface PlaybackPort : PlayerPort {

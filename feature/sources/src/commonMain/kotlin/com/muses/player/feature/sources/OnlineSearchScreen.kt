@@ -18,10 +18,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -48,6 +52,7 @@ import com.muses.player.core.ui.components.MusesIconButtonSize
 import com.muses.player.core.ui.components.MusesTopBar
 import com.muses.player.core.ui.icons.TablerIcons
 import org.koin.compose.viewmodel.koinViewModel
+import org.koin.compose.koinInject
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.Icon
@@ -73,23 +78,36 @@ fun OnlineSearchScreen(
     viewModel: OnlineSearchViewModel = koinViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val recentSearches by viewModel.recentSearches.collectAsState()
     val libraryResults by viewModel.libraryResults.collectAsState()
     val lyricResults by viewModel.lyricResults.collectAsState()
-    val availableQualities by viewModel.availableQualities.collectAsState()
-    val preferredQuality by viewModel.preferredQuality.collectAsState()
+    val playlistStore = koinInject<com.muses.player.core.data.repository.UserPlaylistStore>()
+    val playlists by playlistStore.playlists.collectAsState(emptyList())
     val scheme = MiuixTheme.colorScheme
+    var selectedSourceSong by remember { mutableStateOf<OnlineSearchResult?>(null) }
+    val searchListState = rememberLazyListState()
+    SearchBackHandler(enabled = selectedSourceSong != null) { selectedSourceSong = null }
 
-    // 首次进入即汇总脚本声明的音质档位（决定音质行展示哪些选项）
-    LaunchedEffect(Unit) { viewModel.refreshAvailableQualities() }
-
-    // 首页带入关键词：预填后立即搜一次。
-    // 前置判定 keyword 不一致，除了防重，还兼顾「用户从页内改过关键词后再回退重进」的语义：
-    // 路由里带的关键词才是这一刻的意图，页内修改不应被重置。
     LaunchedEffect(initialKeyword) {
         if (initialKeyword.isNotBlank() && state.keyword != initialKeyword) {
             viewModel.prefillKeyword(initialKeyword)
             viewModel.search()
         }
+    }
+
+    selectedSourceSong?.let { selected ->
+        val sources = groupSearchResults(state.platforms).firstOrNull { selected in it }.orEmpty()
+        MoreSourcesScreen(
+            song = selected,
+            sources = sources,
+            platforms = state.platforms,
+            playlists = playlists,
+            librarySongs = (libraryResults.songs + lyricResults.matches.map { it.song }).distinctBy { it.id },
+            onBack = { selectedSourceSong = null },
+            onPlay = viewModel::playGroupedResult,
+            onPlayLocal = viewModel::playLibrarySong,
+        )
+        return
     }
 
     Scaffold(
@@ -117,7 +135,7 @@ fun OnlineSearchScreen(
                             onSearch = { viewModel.search() },
                             expanded = false,
                             onExpandedChange = {},
-                            label = if (state.category == SearchCategory.LYRICS) "输入记得的一句歌词" else "搜索曲库或在线",
+                            label = "搜索歌曲、专辑、歌手或歌词",
                         )
                     },
                     expanded = false,
@@ -129,8 +147,9 @@ fun OnlineSearchScreen(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                PlatformPill("综合", state.category == SearchCategory.ALL, { viewModel.setCategory(SearchCategory.ALL) })
-                PlatformPill("歌词", state.category == SearchCategory.LYRICS, { viewModel.setCategory(SearchCategory.LYRICS) })
+                PlatformPill("歌曲", state.category == SearchCategory.ALL, { viewModel.setCategory(SearchCategory.ALL) })
+                PlatformPill("专辑", state.category == SearchCategory.ALBUMS, { viewModel.setCategory(SearchCategory.ALBUMS) })
+                PlatformPill("歌手", state.category == SearchCategory.ARTISTS, { viewModel.setCategory(SearchCategory.ARTISTS) })
             }
 
             // 提示横幅（如「该平台无可用脚本」）：点按可关闭
@@ -168,54 +187,20 @@ fun OnlineSearchScreen(
             }
 
             when {
-                !state.searched -> {
-                    Box(
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        MusesEmpty(
-                            title = if (state.category == SearchCategory.LYRICS) "输入一句歌词，找到曲库里的歌" else "空空如也~",
-                            bottomInset = com.muses.player.core.ui.theme.LocalBottomChromePadding.current,
-                        )
+                state.keyword.isNotBlank() && state.keyword.trim() != state.searchedKeyword -> {
+                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Text("正在更新搜索…", color = scheme.onSurfaceVariantSummary)
                     }
                 }
-                state.category == SearchCategory.LYRICS -> {
-                    val loading = lyricResults.loading || lyricResults.keyword != state.searchedKeyword
-                    com.muses.player.core.ui.components.MusesPullToRefresh(
-                        isRefreshing = loading,
-                        onRefresh = viewModel::refreshLyrics,
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        if (loading || lyricResults.matches.isEmpty()) {
-                            com.muses.player.core.ui.components.MusesRefreshablePlaceholder {
-                                if (!loading) MusesEmpty(
-                                    title = if (lyricResults.songsWithLyrics == 0) "曲库中还没有可搜索的歌词" else "没有找到匹配的歌词",
-                                    bottomInset = com.muses.player.core.ui.theme.LocalBottomChromePadding.current,
-                                )
-                            }
-                        } else {
-                            val songs = lyricResults.matches.map { it.song }
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(
-                                    start = SongListLayout.contentHorizontalPadding,
-                                    end = SongListLayout.contentHorizontalPadding,
-                                    bottom = 16.dp + com.muses.player.core.ui.theme.LocalBottomChromePadding.current,
-                                ),
-                                verticalArrangement = Arrangement.spacedBy(SongListLayout.itemSpacing),
-                            ) {
-                                item(key = "lyric-count") { SearchSectionTitle("歌词 · ${songs.size} 首") }
-                                items(lyricResults.matches, key = { "lyric-${it.song.id}" }) { match ->
-                                    LyricResultRow(match) { viewModel.playLibrarySong(match.song.id, songs) }
-                                }
-                            }
-                        }
-                    }
+                !state.searched -> {
+                    RecentSearches(recentSearches, viewModel::searchHistory, viewModel::removeHistory,
+                        viewModel::clearHistory, Modifier.weight(1f))
                 }
                 else -> {
                     MusesRefreshableContent(onRefresh = viewModel::refresh) {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
+                        state = searchListState,
                         contentPadding = PaddingValues(
                             start = SongListLayout.contentHorizontalPadding,
                             end = SongListLayout.contentHorizontalPadding,
@@ -223,118 +208,72 @@ fun OnlineSearchScreen(
                         ),
                         verticalArrangement = Arrangement.spacedBy(SongListLayout.itemSpacing),
                     ) {
-                        item(key = "library-title") { SearchSectionTitle("曲库") }
-                        if (libraryResults.keyword == state.searchedKeyword) {
-                            val songs = libraryResults.songs
-                            if (songs.isNotEmpty()) {
-                                item(key = "songs-title") { SearchSectionTitle("歌曲") }
-                                items(songs, key = { "song-${it.id}" }) { song ->
-                                    LibraryResultRow(song.title, song.artist.orEmpty(), "播放", coverUri = song.coverUri, showCover = true,
-                                        qualityBadgeLabel = song.libraryQualityLabel,
-                                        isLiked = com.muses.player.core.ui.components.LocalFavoriteSongs.current.isLiked(song),
-                                        marqueeEnabled = com.muses.player.core.ui.components.LocalSongMarqueeState.current.matches(song.id)) {
-                                        viewModel.playLibrarySong(song.id, songs)
-                                    }
-                                }
+                        val matching = libraryResults.keyword == state.searchedKeyword
+                        if (state.category == SearchCategory.ALBUMS) {
+                            item(key = "albums-scope") { Text("已有专辑", fontSize = 12.sp, color = scheme.onSurfaceVariantSummary) }
+                            val albums = if (matching) libraryResults.albums else emptyList()
+                            if (albums.isEmpty()) item(key = "albums-empty") { Text("没有找到专辑", color = scheme.onSurfaceVariantSummary) }
+                            items(albums, key = { "album-${it.id}" }) { album ->
+                                LibraryResultRow(album.title, album.artist.orEmpty(), "${album.songCount} 首") { onAlbumClick(album.id) }
                             }
-                            if (libraryResults.albums.isNotEmpty()) {
-                                item(key = "albums-title") { SearchSectionTitle("专辑") }
-                                items(libraryResults.albums, key = { "album-${it.id}" }) { album ->
-                                    LibraryResultRow(album.title, album.artist.orEmpty(), "${album.songCount} 首") {
-                                        onAlbumClick(album.id)
-                                    }
-                                }
-                            }
-                            if (libraryResults.artists.isNotEmpty()) {
-                                item(key = "artists-title") { SearchSectionTitle("艺术家") }
-                                items(libraryResults.artists, key = { "artist-${it.id}" }) { artist ->
-                                    LibraryResultRow(artist.name, "${artist.songCount} 首歌曲", "查看") {
-                                        onArtistClick(artist.id)
-                                    }
-                                }
-                            }
-                            if (songs.isEmpty() && libraryResults.albums.isEmpty() && libraryResults.artists.isEmpty()) {
-                                item(key = "library-empty") {
-                                    Text("空空如也~", color = scheme.onSurfaceVariantSummary)
-                                }
+                        } else if (state.category == SearchCategory.ARTISTS) {
+                            item(key = "artists-scope") { Text("已有歌手", fontSize = 12.sp, color = scheme.onSurfaceVariantSummary) }
+                            val artists = if (matching) libraryResults.artists else emptyList()
+                            if (artists.isEmpty()) item(key = "artists-empty") { Text("没有找到歌手", color = scheme.onSurfaceVariantSummary) }
+                            items(artists, key = { "artist-${it.id}" }) { artist ->
+                                LibraryResultRow(artist.name, "${artist.songCount} 首歌曲", "查看") { onArtistClick(artist.id) }
                             }
                         } else {
-                            item(key = "library-loading") { CircularProgressIndicator() }
-                        }
-                        item(key = "online-title") {
-                            SearchSectionTitle("在线")
-                        }
-                        if (state.platforms.size > 1) item(key = "platform-filters") {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                PlatformPill("全部", state.filterPlatform == null, { viewModel.setFilter(null) })
-                                state.platforms.forEach { platform ->
-                                    PlatformPill(
-                                        label = platform.displayName,
-                                        selected = state.filterPlatform == platform.platform,
-                                        onClick = { viewModel.setFilter(platform.platform) },
-                                        badge = platform.results.size.takeIf { it > 0 }?.toString(),
-                                    )
-                                }
+                        val groups = groupSearchResults(state.platforms)
+                        val lyricMatches = if (lyricResults.keyword == state.searchedKeyword) lyricResults.matches else emptyList()
+                        val localSongs = ((if (matching) libraryResults.songs else emptyList()) + lyricMatches.map { it.song }).distinctBy { it.id }
+                        val mergedIds = groups.flatMap { matchingLibrarySongs(it, localSongs) }.map { it.id }.toSet()
+                        val remainingSongs = localSongs.filterNot { it.id in mergedIds }
+                        items(remainingSongs, key = { "song-${it.id}" }) { song ->
+                            LibraryResultRow(song.title, listOfNotNull(song.artist, song.album).filter { it.isNotBlank() }.joinToString(" · "), "",
+                                coverUri = song.coverUri, showCover = true, song = song,
+                                lyric = lyricMatches.firstOrNull { it.song.id == song.id },
+                                membership = playlistMembership(listOf(song.id), playlists),
+                                qualityBadgeLabel = song.libraryQualityLabel,
+                                isLiked = com.muses.player.core.ui.components.LocalFavoriteSongs.current.isLiked(song),
+                                marqueeEnabled = com.muses.player.core.ui.components.LocalSongMarqueeState.current.matches(song.id)) {
+                                viewModel.playLibrarySong(song.id, remainingSongs)
                             }
                         }
-                        if (availableQualities.isNotEmpty()) {
-                            item(key = "qualities") {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text("音质", fontSize = 12.sp, color = scheme.onSurfaceVariantSummary)
-                                    availableQualities.forEach { quality ->
-                                        PlatformPill(
-                                            quality.label,
-                                            preferredQuality == quality.key,
-                                            { viewModel.setPreferredQuality(quality.key) },
-                                        )
-                                    }
-                                }
-                            }
-                            if (LxQuality.fromKey(preferredQuality)?.isHighTier == true) {
-                                item(key = "quality-hint") {
-                                    Text(
-                                        "高音质档取决于音源脚本能力，可能因加密容器/编码不受支持而失败。",
-                                        fontSize = 11.sp,
-                                        color = scheme.onSurfaceVariantSummary,
-                                    )
-                                }
-                            }
+                        if (state.searching) item(key = "online-searching") {
+                            Text("正在搜索…", fontSize = 12.sp, color = scheme.onSurfaceVariantSummary)
                         }
-                        if (!state.searching && state.totalResults == 0) {
+                        if (state.platforms.any { it.error != null }) item(key = "online-partial-error") {
+                            Text("部分搜索结果暂不可用，可下拉刷新", fontSize = 12.sp, color = scheme.onSurfaceVariantSummary)
+                        }
+                        if (!state.searching && !lyricResults.loading && remainingSongs.isEmpty() && state.totalResults == 0 && state.platforms.none { it.error != null }) {
                             item(key = "online-empty") {
                                 Text("空空如也~", color = scheme.onSurfaceVariantSummary)
                             }
                         }
-                        state.visiblePlatforms.forEach { platform ->
-                            item(key = "hdr-${platform.platform}") {
-                                PlatformSectionHeader(platform)
-                            }
-                            items(
-                                items = platform.results,
-                                key = { "${platform.platform}-${it.songId}" },
-                            ) { result ->
-                                val index = platform.results.indexOf(result)
-                                SearchResultRow(
-                                    result = result,
-                                    sourceName = platformLabel(result.platform, platform.displayName),
-                                    onClick = { viewModel.playResult(platform.platform, index) },
-                                )
-                            }
-                            if (platform.hasMore) {
-                                item(key = "more-${platform.platform}") {
-                                    LoadMoreRow(
-                                        loading = platform.loadingMore,
-                                        onClick = { viewModel.loadMore(platform.platform) },
+                        items(groups, key = { group -> "group-${group.first().platform}-${group.first().songId}" }) { group ->
+                            val first = group.first()
+                            val matchedLocal = matchingLibrarySongs(group, localSongs)
+                            Column {
+                                SearchResultRow(first, "", membership = searchMembership(group, localSongs, playlists),
+                                    lyric = lyricMatches.firstOrNull { it.song in matchedLocal },
+                                    onClick = { viewModel.playGroupedResult(first) })
+                                if (group.size + matchedLocal.size > 1) {
+                                    Text(
+                                        text = "更多音源 · ${group.size + matchedLocal.size} 个  ›",
+                                        fontSize = 12.sp, color = scheme.primary,
+                                        modifier = Modifier.fillMaxWidth().clickable { selectedSourceSong = first }
+                                            .padding(start = SongListLayout.horizontalPadding + SongListLayout.coverSize + SongListLayout.coverGap, bottom = 8.dp, top = 4.dp),
                                     )
                                 }
                             }
+                        }
+                        val morePlatforms = state.platforms.filter { it.hasMore }
+                        if (morePlatforms.isNotEmpty()) item(key = "online-more") {
+                            LoadMoreRow(morePlatforms.any { it.loadingMore }) {
+                                morePlatforms.filterNot { it.loadingMore }.forEach { viewModel.loadMore(it.platform) }
+                            }
+                        }
                         }
                     }
                     }
@@ -342,6 +281,80 @@ fun OnlineSearchScreen(
             }
         }
     }
+}
+
+@Composable
+private fun MoreSourcesScreen(
+    song: OnlineSearchResult,
+    sources: List<OnlineSearchResult>,
+    platforms: List<PlatformSearchState>,
+    playlists: List<com.muses.player.core.data.repository.UserPlaylist>,
+    librarySongs: List<com.muses.player.core.model.Song>,
+    onBack: () -> Unit,
+    onPlay: (OnlineSearchResult) -> Unit,
+    onPlayLocal: (String, List<com.muses.player.core.model.Song>) -> Unit,
+) {
+    val scheme = MiuixTheme.colorScheme
+    Scaffold(
+        containerColor = scheme.surface,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        topBar = { MusesTopBar(title = "更多音源", onBack = onBack) },
+    ) { padding ->
+        LazyColumn(
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(
+                start = SongListLayout.contentHorizontalPadding,
+                end = SongListLayout.contentHorizontalPadding,
+                bottom = 16.dp + com.muses.player.core.ui.theme.LocalBottomChromePadding.current,
+            ),
+            verticalArrangement = Arrangement.spacedBy(SongListLayout.itemSpacing),
+        ) {
+            item(key = "song-heading") {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 16.dp)) {
+                    Text(song.name, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = scheme.onSurface)
+                    Spacer(Modifier.height(4.dp))
+                    Text(song.artist.orEmpty(), fontSize = 13.sp, color = scheme.onSurfaceVariantSummary)
+                    Spacer(Modifier.height(12.dp))
+                    Text("选择音源播放，或通过右侧菜单下载", fontSize = 12.sp, color = scheme.onSurfaceVariantSummary)
+                }
+            }
+            if (sources.isEmpty()) item(key = "sources-empty") {
+                Text("搜索结果已更新，请返回后重试", color = scheme.onSurfaceVariantSummary)
+            }
+            items(sources, key = { "${it.platform}-${it.songId}" }) { source ->
+                val platform = platforms.firstOrNull { it.platform == source.platform }
+                SearchResultRow(source, platform?.displayName.orEmpty(),
+                    membership = searchMembership(listOf(source), librarySongs, playlists), onClick = { onPlay(source) })
+            }
+            val localSources = matchingLibrarySongs(sources, librarySongs)
+            items(localSources, key = { "local-${it.id}" }) { local ->
+                LibraryResultRow(local.title, (listOf("本地") + listOfNotNull(local.artist, local.album).filter { it.isNotBlank() }).joinToString(" · "), "",
+                    coverUri = local.coverUri, showCover = true, song = local,
+                    qualityBadgeLabel = local.libraryQualityLabel,
+                    membership = playlistMembership(listOf(local.id), playlists),
+                    isLiked = com.muses.player.core.ui.components.LocalFavoriteSongs.current.isLiked(local)) {
+                    onPlayLocal(local.id, localSources)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LyricSnippet(match: LibraryLyricMatch) {
+    val scheme = MiuixTheme.colorScheme
+    Spacer(Modifier.height(SongListLayout.textGap))
+    top.yukonga.miuix.kmp.basic.Text(
+        text = buildAnnotatedString {
+            append("词  ")
+            append(match.snippet)
+            addStyle(SpanStyle(color = scheme.primary), match.matchStart + 3, match.matchEnd + 3)
+        },
+        color = scheme.onSurfaceVariantSummary,
+        fontSize = SongListLayout.subtitleSize,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
 }
 
 @Composable
@@ -390,9 +403,13 @@ private fun SearchSectionTitle(title: String) {
 @Composable
 private fun LibraryResultRow(title: String, subtitle: String, detail: String,
     coverUri: String? = null, showCover: Boolean = false, isLiked: Boolean = false, qualityBadgeLabel: String? = null,
+    membership: String? = null,
+    song: com.muses.player.core.model.Song? = null, lyric: LibraryLyricMatch? = null,
     marqueeEnabled: Boolean = true, onClick: () -> Unit) {
     val scheme = MiuixTheme.colorScheme
-    Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+    Card(modifier = Modifier.fillMaxWidth(), onClick = onClick,
+        pressFeedbackType = top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink,
+        showIndication = true) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = SongListLayout.horizontalPadding, vertical = SongListLayout.verticalPadding),
             verticalAlignment = Alignment.CenterVertically,
@@ -421,8 +438,14 @@ private fun LibraryResultRow(title: String, subtitle: String, detail: String,
                     )
                     }
                 }
+                if (membership != null) {
+                    Spacer(Modifier.height(SongListLayout.textGap))
+                    Text(membership, fontSize = 11.sp, color = scheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                lyric?.let { LyricSnippet(it) }
             }
-            Text(detail, fontSize = 12.sp, color = scheme.onSurfaceVariantSummary)
+            if (song != null) com.muses.player.core.ui.components.OnlineSongDownloadAction(song, showPlaylistButton = false)
+            else Text(detail, fontSize = 12.sp, color = scheme.onSurfaceVariantSummary)
         }
     }
 }
@@ -498,6 +521,8 @@ private fun PlatformSectionHeader(platform: PlatformSearchState) {
 private fun SearchResultRow(
     result: OnlineSearchResult,
     sourceName: String,
+    membership: String? = null,
+    lyric: LibraryLyricMatch? = null,
     onClick: () -> Unit,
 ) {
     val scheme = MiuixTheme.colorScheme
@@ -506,7 +531,9 @@ private fun SearchResultRow(
         com.muses.player.core.ui.components.LocalTextMarqueeEnabled provides
             com.muses.player.core.ui.components.LocalSongMarqueeState.current.matches("${result.platform}-${result.songId}"),
     ) {
-    Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+    Card(modifier = Modifier.fillMaxWidth(), onClick = onClick,
+        pressFeedbackType = top.yukonga.miuix.kmp.utils.PressFeedbackType.Sink,
+        showIndication = true) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = SongListLayout.horizontalPadding, vertical = SongListLayout.verticalPadding),
             verticalAlignment = Alignment.CenterVertically,
@@ -538,21 +565,14 @@ private fun SearchResultRow(
                         color = scheme.onSurfaceVariantSummary,
                     )
                 }
+                if (membership != null) {
+                    Spacer(Modifier.height(SongListLayout.textGap))
+                    Text(membership, fontSize = 11.sp, color = scheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                lyric?.let { LyricSnippet(it) }
             }
-            Text(
-                text = formatDuration(result.durationMs),
-                fontSize = 12.sp,
-                color = scheme.onSurfaceVariantSummary,
-            )
-            Spacer(Modifier.width(10.dp))
-            Icon(
-                imageVector = TablerIcons.Play,
-                contentDescription = "播放",
-                modifier = Modifier.size(17.dp),
-                tint = scheme.primary,
-            )
             Spacer(Modifier.width(SongListLayout.actionGap))
-            com.muses.player.core.ui.components.OnlineSongDownloadAction(result.toSong("online"))
+            com.muses.player.core.ui.components.OnlineSongDownloadAction(result.toSong("online"), showPlaylistButton = false)
         }
     }
     }
@@ -581,11 +601,3 @@ private fun LoadMoreRow(loading: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** 毫秒 → m:ss；缺失或未取得有效时长时显示占位符。 */
-private fun formatDuration(ms: Long?): String {
-    if (ms == null || ms <= 0L) return "--:--"
-    val totalSec = ms / 1000
-    val min = totalSec / 60
-    val sec = totalSec % 60
-    return "$min:${sec.toString().padStart(2, '0')}"
-}

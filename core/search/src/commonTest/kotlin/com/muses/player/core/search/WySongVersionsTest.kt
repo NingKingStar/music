@@ -8,6 +8,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.jsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -36,6 +37,8 @@ class WySongVersionsTest {
             assertEquals("SQ", results[0].qualityLabel)
             assertEquals("Hi-Res", results[1].qualityLabel)
             assertEquals("HQ", results[2].qualityLabel)
+            assertEquals("320k,flac", kotlinx.serialization.json.Json.parseToJsonElement(results[0].musicInfoJson).jsonObject["catalogQualityTiers"]?.toString()?.trim('"'))
+            assertEquals("flac,hires", kotlinx.serialization.json.Json.parseToJsonElement(results[1].musicInfoJson).jsonObject["catalogQualityTiers"]?.toString()?.trim('"'))
             assertEquals("https://example.com/old.jpg", results[0].coverUrl)
             assertEquals("https://example.com/new.jpg", results[1].coverUrl)
         } finally { client.close() }

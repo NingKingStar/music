@@ -73,6 +73,9 @@ interface SettingsRepository {
     val downloadPreferredQuality: Flow<String>
     suspend fun setDownloadPreferredQuality(qualityKey: String)
 
+    val chooseDownloadQuality: Flow<Boolean> get() = kotlinx.coroutines.flow.flowOf(true)
+    suspend fun setChooseDownloadQuality(enabled: Boolean) {}
+
     /**
      * 下载到设备时使用的目录（绝对路径）；空串 = 系统下载目录下的 Muses 文件夹。
      * 安卓侧由 SAF 目录选择器写入并持久化授权。
@@ -106,6 +109,12 @@ interface SettingsRepository {
 class DataStoreSettingsRepository constructor(
     private val dataStore: DataStore<Preferences>,
 ) : SettingsRepository {
+    private val chooseDownloadQualityKey = booleanPreferencesKey("choose_download_quality")
+    override val chooseDownloadQuality: Flow<Boolean>
+        get() = dataStore.data.map { it[chooseDownloadQualityKey] ?: true }
+    override suspend fun setChooseDownloadQuality(enabled: Boolean) {
+        dataStore.edit { it[chooseDownloadQualityKey] = enabled }
+    }
     override val audioFocusEnabled: Flow<Boolean>
         get() = dataStore.data.map { it[AUDIO_FOCUS_ENABLED] ?: false }
 

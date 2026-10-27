@@ -131,7 +131,7 @@ class PlayerConnection constructor(
             _currentMediaItem.value = mediaItem
             _mediaMetadata.value = controller?.mediaMetadata
             // 端口派生流必须随切换同步：currentSongId 滞留 null 会把 MiniPlayer 钉在空态（「空空如也~」）
-            controller?.let { syncPortDerived(it) }
+            controller?.let { syncPortDerived(it, mediaItem?.mediaMetadata ?: androidx.media3.common.MediaMetadata.EMPTY) }
         }
 
         override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
@@ -267,7 +267,7 @@ class PlayerConnection constructor(
         _currentMediaItem.value = mediaItems[index]
         _currentSongId.value = songId
         _currentMeta.value = com.muses.player.core.playback.PlaybackMeta(
-            songs[index].title, songs[index].artist, songs[index].album, songs[index].coverUri,
+            songs[index].title, songs[index].artist, songs[index].album, songs[index].coverUri, songId,
         )
         _artworkUri.value = songs[index].coverUri
         _position.value = 0L
@@ -454,6 +454,7 @@ class PlayerConnection constructor(
             artist = meta.artist?.toString()?.trim()?.takeIf { it.isNotEmpty() },
             album = meta.albumTitle?.toString()?.trim()?.takeIf { it.isNotEmpty() },
             coverUri = meta.artworkUri?.toString(),
+            songId = player.currentMediaItem?.mediaId,
         )
         syncQueue(player)
     }
@@ -495,6 +496,7 @@ class PlayerConnection constructor(
             artist = meta.artist?.toString()?.trim()?.takeIf { it.isNotEmpty() },
             album = meta.albumTitle?.toString()?.trim()?.takeIf { it.isNotEmpty() },
             coverUri = meta.artworkUri?.toString(),
+            songId = player.currentMediaItem?.mediaId,
         )
         syncQueue(player)
         _position.value = player.currentPosition

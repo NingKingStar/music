@@ -43,6 +43,7 @@ suspend fun enrichWySongVersions(http: SearchHttp, results: List<OnlineSearchRes
         val metadata = mapOf(
             "originCoverType" to JsonPrimitive(detail.long("originCoverType") ?: 0L),
             "catalogQuality" to JsonPrimitive(wyCatalogQualityLabel(detail).orEmpty()),
+            "catalogQualityTiers" to JsonPrimitive(wyCatalogQualityTiers(detail).joinToString(",")),
         )
         val cover = (detail.obj("album") ?: detail.obj("al"))?.str("picUrl")
             ?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
@@ -51,6 +52,20 @@ suspend fun enrichWySongVersions(http: SearchHttp, results: List<OnlineSearchRes
             musicInfoJson = JsonObject(info + metadata).toString(),
         )
     }
+}
+
+internal fun wyCatalogQualityTiers(song: JsonObject): List<String> {
+    fun bitrate(vararg keys: String): Long? = keys.asSequence().mapNotNull { song.obj(it) }.firstOrNull()
+        ?.let { it.long("bitrate") ?: it.long("br") }
+    val result = mutableSetOf<String>()
+    for (keys in listOf(arrayOf("lMusic", "l"), arrayOf("mMusic", "m"), arrayOf("hMusic", "h"))) {
+        when (bitrate(*keys)) { 128_000L -> result += "128k"; 192_000L -> result += "192k"; 320_000L -> result += "320k" }
+    }
+    fun exists(vararg keys: String): Boolean = keys.asSequence().mapNotNull { song.obj(it) }
+        .any { (it.long("size") ?: 0) > 0 || (it.long("bitrate") ?: it.long("br") ?: 0) > 0 }
+    if (exists("sqMusic", "sq")) result += "flac"
+    if (exists("hrMusic", "hr")) result += "hires"
+    return result.toList()
 }
 
 /** 目录里最高可用音质，不代表播放换源后实际采用的音质。兼容新旧接口字段。 */

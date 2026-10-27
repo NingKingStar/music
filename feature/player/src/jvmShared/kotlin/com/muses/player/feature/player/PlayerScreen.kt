@@ -153,6 +153,7 @@ fun PlayerScreen(
     backgroundAlpha: () -> Float = { 1f },
     /** 宿主已持有的封面，供页面首次挂载时立即绘制转场封面。 */
     initialCoverUri: String? = null,
+    initialCoverSongId: String? = null,
 ) {
     val settingsRepository = koinInject<SettingsRepository>()
     androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
@@ -175,7 +176,6 @@ fun PlayerScreen(
         isPlaying = isPlaying,
     )
     val stickyCover by viewModel.stickyCover.collectAsStateWithLifecycle()
-    val displayCover = stickyCover ?: initialCoverUri
     var contentColor by remember { mutableStateOf(Color.White) }
     val playbackError by viewModel.playbackError.collectAsStateWithLifecycle()
 
@@ -188,11 +188,13 @@ fun PlayerScreen(
     // 刮削完艺术家会显示成 "embedded"。
     val nowPlayingMeta by viewModel.nowPlayingMeta.collectAsStateWithLifecycle()
     val favoriteSongId by viewModel.currentSongId.collectAsStateWithLifecycle()
+    val currentMeta = nowPlayingMeta?.takeIf { it.songId == favoriteSongId }
+    val displayCover = if (currentMeta != null) stickyCover ?: initialCoverUri?.takeIf { initialCoverSongId == currentMeta.songId } else null
     val onlineSongs by com.muses.player.core.model.online.OnlineTrackSession.snapshot.collectAsStateWithLifecycle()
     val favoriteSong = onlineSongs[favoriteSongId] ?: LocalFavoriteSongs.current.library.firstOrNull { it.id == favoriteSongId }
-    val title = nowPlayingMeta?.title?.trim()?.takeIf { it.isNotEmpty() } ?: ""
-    val artist = nowPlayingMeta?.artist ?: ""
-    val hasSong = nowPlayingMeta != null && title.isNotEmpty()
+    val title = currentMeta?.title?.trim()?.takeIf { it.isNotEmpty() } ?: ""
+    val artist = currentMeta?.artist ?: ""
+    val hasSong = currentMeta != null && title.isNotEmpty()
 
     // 拖动层状态（对齐 PlayerPage.vue drag-layer）
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
@@ -853,6 +855,7 @@ private fun FixedSongHead(
         }
         LocalImmersiveFavoriteSong.current?.let { song ->
             SongFavoriteButton(song, likedTint = contentColor, unlikedTint = contentColor.copy(alpha = 0.6f))
+            com.muses.player.core.ui.components.SongPlaylistButton(song)
         }
     }
 }

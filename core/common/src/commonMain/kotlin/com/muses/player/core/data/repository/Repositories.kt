@@ -62,6 +62,27 @@ interface SongRepository {
         ids.mapNotNull { id -> getSong(id)?.let { id to it } }.toMap()
     /** 单曲写入/更新（M3 刮削写回链路，对齐 Web upsertSong） */
     suspend fun upsert(song: Song)
+
+    suspend fun markDownloadedFileMissing(id: String, sourceId: String) {}
+
+    /** 同批写入只重建一次派生索引；默认实现兼容平台仓储。 */
+    suspend fun upsertAll(songs: List<Song>) { songs.forEach { upsert(it) } }
+
+    /** 播放前只登记缺失的文件引用，已存在的歌词、封面和刮削标签不被快照覆盖。 */
+    suspend fun prepareDownloads(queue: List<Song>) {
+        val candidates = queue.filter { it.sourceType != com.muses.player.core.model.SourceType.ONLINE }
+            .distinctBy { it.id }
+        val existing = getSongs(candidates.map { it.id })
+        val changes = candidates.mapNotNull { song ->
+            val old = existing[song.id]
+            when {
+                old == null -> song
+                old.path != song.path -> old.copy(path = song.path, sourceId = song.sourceId, sourceType = song.sourceType)
+                else -> null
+            }
+        }
+        if (changes.isNotEmpty()) upsertAll(changes)
+    }
 }
 
 class RoomSongRepository constructor(
@@ -69,6 +90,10 @@ class RoomSongRepository constructor(
     private val albumDao: com.muses.player.core.data.dao.AlbumDao,
     private val artistDao: com.muses.player.core.data.dao.ArtistDao,
 ) : SongRepository {
+    override suspend fun markDownloadedFileMissing(id: String, sourceId: String) {
+        songDao.markFileMissing(id, sourceId)
+        rebuildDerivedIndexes()
+    }
     override fun observeSongs(): Flow<List<Song>> =
         songDao.observeAll().map { entities -> entities.map { it.toDomain() } }
 
@@ -113,13 +138,34 @@ class RoomSongRepository constructor(
     override suspend fun getSongs(ids: List<String>): Map<String, Song> {
         if (ids.isEmpty()) return emptyMap()
         return ids.chunked(900).flatMap { chunk ->
-            runCatching { songDao.getByIds(chunk) }.getOrDefault(emptyList())
+            songDao.getByIds(chunk)
         }.associate { it.id to it.toDomain() }
     }
 
     override suspend fun upsert(song: Song) {
         songDao.upsert(song.toEntity())
         // 懒扫描回写可能改变专辑/艺术家归属，同步重建派生索引
+        rebuildDerivedIndexes()
+    }
+
+    override suspend fun prepareDownloads(queue: List<Song>) {
+        val candidates = queue.filter { it.sourceType != com.muses.player.core.model.SourceType.ONLINE }.distinctBy { it.id }
+        val existing = candidates.map { it.id }.chunked(900).flatMap { songDao.getByIds(it) }.associateBy { it.id }
+        val changes = candidates.mapNotNull { song ->
+            val old = existing[song.id]
+            when {
+                old == null -> song.toEntity()
+                old.missing || old.path != song.path || old.sourceId != song.sourceId ->
+                    old.copy(path = song.path, sourceId = song.sourceId, sourceType = song.toEntity().sourceType, missing = false)
+                else -> null
+            }
+        }
+        if (changes.isNotEmpty()) { songDao.insertAll(changes); rebuildDerivedIndexes() }
+    }
+
+    override suspend fun upsertAll(songs: List<Song>) {
+        if (songs.isEmpty()) return
+        songDao.insertAll(songs.distinctBy { it.id }.map { it.toEntity() })
         rebuildDerivedIndexes()
     }
 

@@ -155,7 +155,19 @@ class PlaybackService : MediaSessionService() {
             )
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
 
-        val player = ExoPlayer.Builder(this)
+        val renderers = object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
+            override fun buildAudioSink(
+                context: android.content.Context,
+                enableFloatOutput: Boolean,
+                enableAudioOutputPlaybackParameters: Boolean,
+            ): androidx.media3.exoplayer.audio.AudioSink? =
+                super.buildAudioSink(context, enableFloatOutput, enableAudioOutputPlaybackParameters)
+                    ?.let { DiagnosticAudioSink(it, errorLogStore) }
+        }
+        if (requiresSynchronousCodec(android.os.Build.MANUFACTURER, android.os.Build.MODEL, android.os.Build.VERSION.SDK_INT)) {
+            renderers.forceDisableMediaCodecAsynchronousQueueing()
+        }
+        val player = ExoPlayer.Builder(this, renderers)
             // 默认允许混音，持久化的音频焦点设置由下方监听即时应用。
             .setAudioAttributes(audioAttributes, false)
             .setHandleAudioBecomingNoisy(true)
@@ -730,6 +742,23 @@ class PlaybackService : MediaSessionService() {
 
     /** 持久化监听：转场/播放态切换/seek 触发节流保存；转场登记最近播放 */
     private val persistenceListener = object : Player.Listener {
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int,
+        ) {
+            if (reason != Player.DISCONTINUITY_REASON_AUTO_TRANSITION) return
+            val oldId = oldPosition.mediaItem?.mediaId ?: return
+            val song = com.muses.player.core.model.online.OnlineTrackSession.snapshot.value[oldId] ?: return
+            val expected = song.durationMs
+            val played = oldPosition.positionMs
+            if (expected >= 90_000L && played > 0L && played + 30_000L < expected && played < expected / 2) {
+                errorLogStore.log(
+                    ErrorLogStore.Level.WARN, "Playback",
+                    "歌曲提前结束并自动切换：歌曲=${song.title}，已播=${played}ms，目录时长=${expected}ms，下一首=${newPosition.mediaItem?.mediaMetadata?.title ?: "未知"}"
+                )
+            }
+        }
 
         /**
          * 播放失败自动恢复（规格书 = controller.ts 播放失败分支）：
@@ -786,6 +815,9 @@ class PlaybackService : MediaSessionService() {
             if (candidateIndex != null) {
                 recoveryController.recordAttempt(order[candidateIndex])
                 recoveryController.clearError()
+                com.muses.player.core.ui.components.MusesSnackbar.show(
+                    "「${player.currentMediaItem?.mediaMetadata?.title ?: "歌曲"}」播放失败，正在切换下一首"
+                )
                 // 继续恢复时不清媒体会话，避免异步 clear 覆盖下一首刚写入的 metadata
                 player.seekTo(mediaIndices[candidateIndex], 0)
                 player.prepare()

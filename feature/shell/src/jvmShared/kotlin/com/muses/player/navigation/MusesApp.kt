@@ -142,6 +142,7 @@ import kotlin.math.roundToInt
 
 /** MiniPlayerBar 的数据快照（对照 MiniPlayer.vue 的 playerState.currentSong 消费口径） */
 data class NowPlayingUiState(
+    val songId: String,
     val title: String,
     /** 宽屏副标题（≥ [TabletBreakpoint]）：「{artist} - {album}」，空值回退「未知艺术家/未知专辑」 */
     val subtitle: String,
@@ -330,16 +331,18 @@ class MainViewModel constructor(
             val onlineArtist = online.artist?.trim()?.takeIf { it.isNotEmpty() } ?: "未知艺术家"
             val onlineAlbum = online.album?.trim()?.takeIf { it.isNotEmpty() } ?: "未知专辑"
             return NowPlayingUiState(
+                songId = songId,
                 title = online.title.trim().takeIf { it.isNotEmpty() } ?: "未知歌曲",
                 subtitle = "$onlineArtist - $onlineAlbum",
                 artist = onlineArtist,
                 coverUri = online.coverUri,
             )
         }
-        val metaTitle = meta?.title?.trim()?.takeIf { it.isNotEmpty() }
-        val metaArtist = meta?.artist?.trim()?.takeIf { it.isNotEmpty() }
-        val metaAlbum = meta?.album?.trim()?.takeIf { it.isNotEmpty() }
-        val metaCover = meta?.coverUri
+        val currentMetadata = meta?.takeIf { it.songId == songId }
+        val metaTitle = currentMetadata?.title?.trim()?.takeIf { it.isNotEmpty() }
+        val metaArtist = currentMetadata?.artist?.trim()?.takeIf { it.isNotEmpty() }
+        val metaAlbum = currentMetadata?.album?.trim()?.takeIf { it.isNotEmpty() }
+        val metaCover = currentMetadata?.coverUri
         // 修复：已刮削字段（metaTitle/metaArtist/metaAlbum/metaCover 非空）优先库值，避免重刮削后仍显示旧文件标签
         val title = when {
             song == null -> metaTitle ?: "未知歌曲"
@@ -366,6 +369,7 @@ class MainViewModel constructor(
             else -> song.coverUri
         }
         return NowPlayingUiState(
+            songId = songId,
             title = title,
             subtitle = "$artist - $album",
             artist = artist,
@@ -521,8 +525,20 @@ private fun MusesAppContent(openSettingsRequest: Long) {
             playbackError?.let { com.muses.player.core.ui.components.MusesSnackbar.show(it) }
         }
         val downloadManager = org.koin.compose.koinInject<com.muses.player.download.DownloadManager>()
+        val downloadSettings = org.koin.compose.koinInject<SettingsRepository>()
+        val chooseDownloadQuality by downloadSettings.chooseDownloadQuality.collectAsState(true)
+        val defaultDownloadQuality by downloadSettings.downloadPreferredQuality.collectAsState("320k")
+        var qualityDownloadSong by remember { mutableStateOf<Song?>(null) }
+        val requestDownload: (Song) -> Unit = { song ->
+            if (chooseDownloadQuality) qualityDownloadSong = song
+            else downloadManager.enqueue(song, startImmediately = true)
+            Unit
+        }
         val favoritesStore = org.koin.compose.koinInject<com.muses.player.core.data.repository.FavoriteSongsStore>()
         val favorites by favoritesStore.state.collectAsState()
+        val playlistStore = org.koin.compose.koinInject<com.muses.player.core.data.repository.UserPlaylistStore>()
+        var playlistSong by remember { mutableStateOf<Song?>(null) }
+        val addSongToPlaylist: (Song) -> Unit = { song -> playlistSong = song }
         val downloadDuplicate by downloadManager.libraryDuplicatePrompt.collectAsState()
         val onlineSongs by com.muses.player.core.model.online.OnlineTrackSession.snapshot.collectAsState()
         val downloadSong = onlineSongs[playerActionSongId]
@@ -533,10 +549,9 @@ private fun MusesAppContent(openSettingsRequest: Long) {
         val setSongLiked: (Song, Boolean) -> Unit = { song, liked ->
             actionScope.launch {
                 try {
-                    val changed = favoritesStore.setLiked(song, liked)
+                    favoritesStore.setLiked(song, liked)
                     com.muses.player.core.ui.components.MusesSnackbar.show(
-                        if (!changed) "曲库歌曲固定为我喜欢"
-                        else if (liked) "已标记我喜欢" else "已取消我喜欢")
+                        if (liked) "已加入我喜欢" else "已从我喜欢移除")
                 } catch (e: kotlinx.coroutines.CancellationException) { throw e }
                 catch (_: Exception) { com.muses.player.core.ui.components.MusesSnackbar.show("保存喜欢标记失败，请重试") }
             }
@@ -547,10 +562,10 @@ private fun MusesAppContent(openSettingsRequest: Long) {
         // 全局短提示宿主状态（MusesApp 作用域持有，跨重组保持；消费见 MusesSnackbar）
         val snackbarHostState = remember { SnackbarHostState() }
 
-        // 手机和平板共用「探索 / 曲库 / 我的」三个底部入口。
+        // 手机和平板共用「探索 / 歌单 / 我的」三个底部入口。
         val bottomItems = listOf(
             NavDestination.Home.toNavItem(currentKey, backStack),
-            NavDestination.Songs.toNavItem(currentKey, backStack).copy(label = "曲库"),
+            NavDestination.Songs.toNavItem(currentKey, backStack),
             NavDestination.Mine.toNavItem(currentKey, backStack),
         )
 
@@ -580,16 +595,12 @@ private fun MusesAppContent(openSettingsRequest: Long) {
         // 无歌曲时不进入紧凑形态（没内容可融合）；当前 tab 图标用于融合胶囊左侧
         val dockCompact = bottomDockCompact && nowPlaying != null
         val currentTabItem = bottomItems.firstOrNull { it.active }
-            ?: if (NavDestination.Search.isActive(currentKey)) {
-                NavDestination.Search.toNavItem(currentKey, backStack)
-            } else {
-                bottomItems.first()
-            }
+            ?: bottomItems.first()
         // 路由变化时重置为展开态（对齐 Halcyon 的 LaunchedEffect(currentRoute, canCompact)）：
         // 否则从列表页滚着进子页（如在线搜索/详情）时，底栏会带着上一页的融合态打开，
         // 底栏显示成三部分而非完整导航。
         LaunchedEffect(currentKey) { bottomDockCompact = false }
-        // 融合过渡进度（借鉴 Halcyon）：同一个弹簧进度驱动两侧 pill 尺寸与图标缩放，
+        // 融合过渡进度（借鉴 Halcyon）：弹簧进度驱动导航图标缩放，
         // 让「两行 ↔ 一行」的切换不再是一帧跳变（Halcyon 用 spring(0.88, 520)）。
         val compactProgress by animateFloatAsState(
             targetValue = if (dockCompact) 1f else 0f,
@@ -620,9 +631,10 @@ private fun MusesAppContent(openSettingsRequest: Long) {
             CompositionLocalProvider(
                 com.muses.player.core.ui.components.LocalSongMarqueeState provides
                     com.muses.player.core.ui.components.SongMarqueeState(currentSongId, isPlaying),
-                com.muses.player.core.ui.components.LocalDownloadSong provides { song -> downloadManager.enqueue(song); Unit },
+                com.muses.player.core.ui.components.LocalDownloadSong provides requestDownload,
                 com.muses.player.core.ui.components.LocalFavoriteSongs provides favorites,
                 com.muses.player.core.ui.components.LocalSetSongLiked provides setSongLiked,
+                com.muses.player.core.ui.components.LocalAddSongToPlaylist provides addSongToPlaylist,
                 com.muses.player.core.ui.theme.LocalBottomChromeElevation provides bottomBarElevation,
             ) {
             Scaffold(
@@ -650,7 +662,7 @@ private fun MusesAppContent(openSettingsRequest: Long) {
                     ) { compact ->
                     if (compact) {
                         // 滚动融合形态（借鉴 Halcyon）：两行合并为一行
-                        // [当前 tab 图标] + [紧凑迷你播放器] + [搜索]，点左侧图标展开回两行
+                        // [当前 tab 图标] + [紧凑迷你播放器]，点左侧图标展开回两行
                         CompactPlayerDock(
                             tabIcon = currentTabItem.icon,
                             title = nowPlaying?.title ?: "空空如也~",
@@ -663,7 +675,6 @@ private fun MusesAppContent(openSettingsRequest: Long) {
                             onOpenPlayer = { openPlayer() },
                             onTogglePlayback = { viewModel.playPause() },
                             onOpenQueue = { showQueueOverlay = true },
-                            onOpenSearch = { navigateToTab(backStack, NavDestination.Search) },
                             sideMargin = chromeSideMargin,
                             compactProgress = compactProgress,
                             playerTransitionProgress = if (playerOverlayMounted) 1f else 0f,
@@ -710,8 +721,7 @@ private fun MusesAppContent(openSettingsRequest: Long) {
                     // 去「收紧底部留白」，但那会让迷你条与底栏之间空出 20dp，观感松散（已移除）。
                     // 注意任何位移必须包在组件外面：经 modifier 参数传进去只会偏移内部内容，背景不动。
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        // 导航胶囊 + 右侧独立搜索钮并排（对齐 Halcyon：其底部 dock 旁还有一个
-                        // `BottomDockActionPill`，64×64 正方形、只有图标、与 dock 同材质）。
+                        // 导航胶囊占满可用宽度，搜索已移至探索页顶部。
                         // 左右边距必须由**外层 Row 的 padding**提供：
                         // 若写在 MusesBottomDock 自己的 modifier 链上（fillMaxWidth().padding()），
                         // 胶囊背景仍按全宽绘制，窄屏下右侧会贴到屏幕边缘被裁（360dp 实测）。
@@ -733,12 +743,6 @@ private fun MusesAppContent(openSettingsRequest: Long) {
                                     )
                                 },
                             )
-                            MusesDockActionPill(
-                                icon = TablerIcons.Search,
-                                label = "搜索",
-                                selected = NavDestination.Search.isActive(currentKey),
-                                onClick = { navigateToTab(backStack, NavDestination.Search) },
-                            )
                         }
                     }
                     }
@@ -754,7 +758,7 @@ private fun MusesAppContent(openSettingsRequest: Long) {
             ) {
             // 子页面系统返回 → 上一级；主页（栈深 1）不消费，留在本页。
             // overlay 打开时不抢返回：沉浸页/队列各自消费（沉浸页见下方 ShellBackHandler，队列由 sheet 自行消费）。
-            ShellBackHandler(enabled = backStack.size > 1 && !playerOpen && !showQueueOverlay && downloadDuplicate == null) {
+            ShellBackHandler(enabled = backStack.size > 1 && !playerOpen && !showQueueOverlay && downloadDuplicate == null && playlistSong == null) {
                 backStack.pop()
             }
             TabsLayout {
@@ -769,6 +773,13 @@ private fun MusesAppContent(openSettingsRequest: Long) {
             }
             if (!playerOverlayMounted) {
                 com.muses.player.download.DownloadLibraryDuplicateDialog(downloadManager)
+                DownloadQualityPicker(qualityDownloadSong, defaultDownloadQuality, onDismiss = { qualityDownloadSong = null }) { song, quality ->
+                    qualityDownloadSong = null
+                    downloadManager.enqueue(song, startImmediately = true, selectedQuality = quality)
+                }
+                playlistSong?.let { song ->
+                    com.muses.player.core.ui.components.PlaylistPickerDialog(song, playlistStore, onDismiss = { playlistSong = null })
+                }
             }
             }
         }
@@ -778,6 +789,7 @@ private fun MusesAppContent(openSettingsRequest: Long) {
             CompositionLocalProvider(
                 com.muses.player.core.ui.components.LocalFavoriteSongs provides favorites,
                 com.muses.player.core.ui.components.LocalSetSongLiked provides setSongLiked,
+                com.muses.player.core.ui.components.LocalAddSongToPlaylist provides addSongToPlaylist,
             ) {
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
@@ -790,7 +802,7 @@ private fun MusesAppContent(openSettingsRequest: Long) {
                     ImmersivePlayerOverlay(
                         playerProgress = playerProgress,
                         readPlayerProgress = { playerProgressState.value },
-                        sheetOpen = playerActionSongId != null || showQueueOverlay || downloadDuplicate != null,
+                        sheetOpen = playerActionSongId != null || showQueueOverlay || downloadDuplicate != null || playlistSong != null,
                         miniBarBounds = miniBarBounds,
                         miniPlayerLyricsEnabled = miniPlayerLyricsEnabled,
                         currentLyricLine = currentLyricLine,
@@ -830,9 +842,16 @@ private fun MusesAppContent(openSettingsRequest: Long) {
                                 }
                             }
                         },
-                        onEnqueueDownload = downloadSong?.let { song -> { downloadManager.enqueue(song); Unit } },
+                        onEnqueueDownload = downloadSong?.let { song -> { requestDownload(song) } },
                     )
                     com.muses.player.download.DownloadLibraryDuplicateDialog(downloadManager)
+                    DownloadQualityPicker(qualityDownloadSong, defaultDownloadQuality, onDismiss = { qualityDownloadSong = null }) { song, quality ->
+                        qualityDownloadSong = null
+                        downloadManager.enqueue(song, startImmediately = true, selectedQuality = quality)
+                    }
+                    playlistSong?.let { song ->
+                        com.muses.player.core.ui.components.PlaylistPickerDialog(song, playlistStore, onDismiss = { playlistSong = null })
+                    }
                 }
             }
             }
@@ -912,6 +931,7 @@ private fun ImmersivePlayerOverlay(
                         headingCollapseAlpha = { ((readPlayerProgress().coerceIn(0f, 1f) - 0.75f) / 0.25f).coerceIn(0f, 1f) },
                         backgroundAlpha = { (readPlayerProgress().coerceIn(0f, 1f) / 0.25f).coerceIn(0f, 1f) },
                         initialCoverUri = nowPlaying?.coverUri,
+                        initialCoverSongId = nowPlaying?.songId,
                         onSeekCollapse = onSeekCollapse,
                         onSettleCollapse = onSettleCollapse,
                     )
@@ -975,7 +995,7 @@ private fun NavDestination.toNavItem(
 ): MusesNavItem = MusesNavItem(
     icon = icon,
     label = label,
-    active = isActive(currentKey),
+    active = this == activeDestination(backStack),
     onClick = { navigateToTab(backStack, this) },
 )
 
@@ -1033,13 +1053,28 @@ private fun AppNavHost(
         ),
     ) {
         entry<MusesRoute.Songs> {
-            // 曲库容器：内含「歌曲 / 专辑 / 艺术家」三个 Tab（底栏精简为三项后，
-            // 专辑/艺术家的入口改由此提供）。U16：SongsPage 经 PlaybackPort 消费。
+            val store = org.koin.compose.koinInject<com.muses.player.core.data.repository.UserPlaylistStore>()
+            val favorites = com.muses.player.core.ui.components.LocalFavoriteSongs.current
+            val downloads = org.koin.compose.koinInject<com.muses.player.core.download.DownloadQueueStore>()
+            val downloaded by downloads.downloadedSongs.collectAsState(initial = emptyList())
+            var importing by remember { mutableStateOf(false) }
+            com.muses.player.feature.library.PlaylistsScreen(store, favorites.likedSongs.size, downloaded.size,
+                onOpen = { backStack.pushUnique(MusesRoute.UserCollection(it)) }, onImport = { importing = true })
+            if (importing) ImportPlaylistDialog(store, onDismiss = { importing = false },
+                onOpen = { importing = false; backStack.pushUnique(MusesRoute.UserCollection(it)) })
+        }
+        entry<MusesRoute.UserCollection>(swipeDismiss = NavSwipeDirection.LeftToRight) { route ->
+            UserCollectionRoute(route.collectionId, onBack = { backStack.pop() },
+                onManageDownloads = { backStack.pushUnique(MusesRoute.Downloads) })
+        }
+        entry<MusesRoute.LocalLibrary>(swipeDismiss = NavSwipeDirection.LeftToRight) {
+            // 原曲库作为“我的”子页保留歌曲、专辑与艺术家入口。
             val playback = org.koin.compose.koinInject<com.muses.player.core.playback.PlaybackPort>()
             // M3：刮削队列入队（ScrapeQueueStore 为 @Singleton，经 koinViewModel 载体注入）
             val scrapeQueueVm: com.muses.player.feature.scrape.ScrapeQueueAccessViewModel = koinViewModel()
             val libraryScanner = org.koin.compose.koinInject<com.muses.player.feature.sources.LibraryRefreshScanner>()
             LibraryScreen(
+                onBack = { backStack.pop() },
                 playback = playback,
                 onEnqueueScrape = { ids -> scrapeQueueVm.enqueue(ids) },
                 onScanSources = {
@@ -1155,6 +1190,7 @@ private fun AppNavHost(
         }
         entry<MusesRoute.Home> {
             HomeScreen(
+                onOpenSearch = { backStack.pushUnique(MusesRoute.OnlineSearch()) },
                 onOpenRecommendations = { backStack.pushUnique(MusesRoute.HomeCollection(true)) },
                 onOpenCharts = { backStack.pushUnique(MusesRoute.HomeCollection(false)) },
                 onOpenChart = { platform, chartId, title ->
@@ -1195,7 +1231,7 @@ private fun AppNavHost(
         }
         entry<MusesRoute.OnlineSearch> { route ->
             OnlineSearchScreen(
-                onBack = if (route.keyword.isNotBlank()) ({ backStack.pop() }) else null,
+                onBack = { backStack.pop() },
                 initialKeyword = route.keyword,
                 onAlbumClick = { albumId -> backStack.pushUnique(MusesRoute.AlbumDetail(albumId)) },
                 onArtistClick = { artistId -> backStack.pushUnique(MusesRoute.ArtistDetail(artistId)) },
@@ -1221,6 +1257,7 @@ private fun AppNavHost(
                 onOpenHistory = { backStack.pushUnique(MusesRoute.History) },
                 onOpenSettings = { backStack.pushUnique(MusesRoute.Settings) },
                 onOpenDownloads = { backStack.pushUnique(MusesRoute.Downloads) },
+                onOpenLibrary = { backStack.pushUnique(MusesRoute.LocalLibrary) },
             )
         }
         entry<MusesRoute.Statistics>(swipeDismiss = NavSwipeDirection.LeftToRight) {
@@ -1252,10 +1289,10 @@ private fun AppNavHost(
  * 滚动融合形态的底部胶囊（借鉴 Halcyon 的 `CompactBottomDock`）。
  *
  * 列表向下滚动时，展开态的两行（独立迷你条 + 悬浮导航栏）融合为**一行**：
- * `[当前 tab 图标] + [紧凑迷你播放器] + [搜索]`，点左侧图标展开回两行。
+ * `[当前 tab 图标] + [紧凑迷你播放器]`，点左侧图标展开回两行。
  *
  * 为什么保留迷你播放器而不换成更矮的紧凑版：Muses 的迷你条本身就是 64dp 悬浮胶囊，
- * 与两侧 pill 同高，融合后仍是一行完整胶囊，无需再做第二套播放器组件。
+ * 与导航 pill 同高，融合后仍是一行完整胶囊，无需再做第二套播放器组件。
  */
 @Composable
 private fun CompactPlayerDock(
@@ -1270,7 +1307,6 @@ private fun CompactPlayerDock(
     onOpenPlayer: () -> Unit,
     onTogglePlayback: () -> Unit,
     onOpenQueue: () -> Unit,
-    onOpenSearch: () -> Unit,
     sideMargin: Dp,
     compactProgress: Float,
     playerTransitionProgress: Float,
@@ -1311,7 +1347,7 @@ private fun CompactPlayerDock(
                 onOpenPlayer = onOpenPlayer,
                 onTogglePlayback = onTogglePlayback,
                 onOpenQueue = onOpenQueue,
-                // 融合态宽度被两侧 pill 占去大半：关队列按钮，把宽度让给标题
+                // 紧凑模式优先为歌曲标题保留空间。
                 showQueueButton = false,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1319,15 +1355,6 @@ private fun CompactPlayerDock(
                     .reportMiniBarBounds(onPlayerBounds),
             )
         }
-        // 右：搜索
-        MusesDockActionPill(
-            icon = TablerIcons.Search,
-            label = "搜索",
-            selected = false,
-            onClick = onOpenSearch,
-            iconSize = DockPillIconSize,
-            iconScale = iconScale,
-        )
         }
     }
 }

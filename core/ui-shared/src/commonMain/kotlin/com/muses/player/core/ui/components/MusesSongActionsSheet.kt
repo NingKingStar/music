@@ -16,20 +16,24 @@ fun MusesSongActionsSheet(
 ) {
     val favorites = LocalFavoriteSongs.current
     val setLiked = LocalSetSongLiked.current
+    val addToPlaylist = LocalAddSongToPlaylist.current
     MusesActionsSheet(
         opened = songId != null,
         onDismiss = onDismiss,
         label = "歌曲操作",
         songInfo = favoriteSong?.let { MusesActionSongInfo(it.title, it.artist, it.album, it.coverUri) },
         items = listOfNotNull(
-            favoriteSong?.takeIf { favorites.loaded && setLiked != null && !favorites.isInLibrary(it) }?.let { song ->
+            favoriteSong?.takeIf { favorites.loaded && setLiked != null }?.let { song ->
                 val liked = favorites.isLiked(song)
                 MusesActionItem(if (liked) "取消我喜欢" else "标记我喜欢", onClick = {
                     setLiked?.invoke(song, !liked)
                     onDismiss()
                 })
             },
-            onEnqueueDownload?.let { enqueue -> MusesActionItem("添加到下载队列", onClick = { enqueue(); onDismiss() }) },
+            favoriteSong?.takeIf { addToPlaylist != null }?.let { song ->
+                MusesActionItem("添加到歌单", onClick = { onDismiss(); addToPlaylist?.invoke(song) })
+            },
+            onEnqueueDownload?.let { enqueue -> MusesActionItem("下载歌曲", onClick = { enqueue(); onDismiss() }) },
             onEnqueueScrape?.let { enqueueScrape -> MusesActionItem(label = "添加到刮削队列", onClick = {
                 songId?.let {
                     enqueueScrape(listOf(it))

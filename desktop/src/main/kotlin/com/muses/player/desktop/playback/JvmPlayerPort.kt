@@ -506,6 +506,7 @@ class JvmPlayerPort(
                         artist = tags.artist,
                         album = tags.album,
                         coverUri = tags.coverUri,
+                        songId = songId,
                     )
                 }
             }

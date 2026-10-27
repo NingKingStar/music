@@ -28,6 +28,17 @@ private class AndroidDownloadStorage(
     override val stagingDirectory = File(context.filesDir, "pending-downloads")
     private val resolver get() = context.contentResolver
 
+    override suspend fun deleteSaved(location: String): Boolean {
+        require(location.startsWith("content://")) { "无法安全确认文件位置，请在文件管理器中处理" }
+        val uri = Uri.parse(location)
+        val deleted = try {
+            if (DocumentsContract.isDocumentUri(context, uri))
+                if (DocumentsContract.deleteDocument(resolver, uri)) 1 else 0
+            else resolver.delete(uri, null, null)
+        } catch (_: java.io.FileNotFoundException) { 0 }
+        return deleted > 0
+    }
+
     override suspend fun exists(task: DownloadTask): Boolean {
         val location = task.savedLocation ?: return false
         // 设备/本地下载落的是 SAF 或 MediaStore 的 content URI，按 URI 查存在性
@@ -35,7 +46,7 @@ private class AndroidDownloadStorage(
             return runCatching {
                 resolver.query(Uri.parse(location), arrayOf(MediaStore.MediaColumns._ID), null, null, null)
                     ?.use { cursor -> cursor.moveToFirst() }
-                    ?: false
+                    ?: true
             }.getOrDefault(true)
         }
         return runCatching { File(location).isFile }.getOrDefault(true)

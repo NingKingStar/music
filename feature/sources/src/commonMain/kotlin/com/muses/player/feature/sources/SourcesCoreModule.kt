@@ -9,6 +9,7 @@ import org.koin.dsl.module
  * 播放队列清理回调取 PlaybackPort 绑定（安卓=PlayerConnection，桌面=DesktopPlayerHook）。
  */
 val sourcesCoreModule = module {
+    single { com.muses.player.core.data.repository.SearchHistoryStore(get()) }
     single { LibraryRefreshScanner(get(), get(), get()) }
     viewModel { WebDavBrowseViewModel(get()) }
     // 洛雪自定义音源脚本管理页（脚本增删/启禁用/导入预检）
@@ -16,7 +17,7 @@ val sourcesCoreModule = module {
     // 在线搜索页（多平台并行搜索 + 点结果直接播放）
     viewModel {
         val port: PlaybackPort = get()
-        OnlineSearchViewModel(get(), port, get(), get(), get(), get(), get())
+        OnlineSearchViewModel(get(), port, get(), get(), get(), get(), get(), historyStore = get())
     }
     viewModel { WebDavFormViewModel(get(), get(), get()) }
     viewModel {

@@ -2,7 +2,7 @@ package com.muses.player.feature.sources
 
 import com.muses.player.core.model.Song
 
-enum class SearchCategory { ALL, LYRICS }
+enum class SearchCategory { ALL, ALBUMS, ARTISTS }
 
 data class LibraryLyricMatch(
     val song: Song,

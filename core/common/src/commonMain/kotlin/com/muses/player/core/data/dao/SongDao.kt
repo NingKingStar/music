@@ -73,6 +73,9 @@ interface SongDao {
     @Query("DELETE FROM songs WHERE id = :id")
     suspend fun deleteById(id: String)
 
+    @Query("UPDATE songs SET missing = 1 WHERE id = :id AND sourceId = :sourceId")
+    suspend fun markFileMissing(id: String, sourceId: String)
+
     @Query("SELECT COUNT(*) FROM songs")
     suspend fun count(): Int
 

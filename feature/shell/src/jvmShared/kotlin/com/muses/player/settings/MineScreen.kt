@@ -27,6 +27,7 @@ fun MineScreen(
     onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenDownloads: () -> Unit,
+    onOpenLibrary: () -> Unit,
 ) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -43,6 +44,7 @@ fun MineScreen(
         ) {
             SettingsBlockTitle("曲库工具")
             Card(modifier = Modifier.padding(horizontal = 12.dp)) {
+                ArrowPreference(title = "本地与云端音乐", onClick = onOpenLibrary)
                 ArrowPreference(title = "音源", onClick = onOpenSources)
                 ArrowPreference(title = "刮削", onClick = onOpenScrape)
                 ArrowPreference(title = "下载", onClick = onOpenDownloads)

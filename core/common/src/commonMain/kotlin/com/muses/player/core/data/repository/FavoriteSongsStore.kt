@@ -15,6 +15,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -30,19 +33,27 @@ data class FavoriteSongsState(
 ) {
     fun isInLibrary(song: Song): Boolean = library.any { sameSong(it, song) }
 
-    fun isLiked(song: Song): Boolean = isInLibrary(song) ||
+    fun isLiked(song: Song): Boolean =
         selections.lastOrNull { sameSong(it.track.toSong(), song) }?.liked == true
 
-    /** 仅手动收藏的在线歌曲需要下载；同曲跨平台只保留一份。 */
-    val missingOnlineSongs: List<Song> get() = buildList {
-        selections.filter { it.liked }.forEach { selection ->
+    /** 喜欢仅由心形管理；优先使用曲库中仍存在的文件和最新标签。 */
+    val likedSongs: List<Song> by lazy { selections.asReversed()
+        .filter { it.liked && isLiked(it.track.toSong()) }
+        .map { selection ->
             val song = selection.track.toSong()
-            if (OnlineTrackRef.parse(song.path) != null && library.none { sameSong(it, song) } && none { sameSong(it, song) }) add(song)
+            library.firstOrNull { sameSong(it, song) } ?: song
+        }.fold(emptyList<Song>()) { result, song ->
+            if (result.any { sameSong(it, song) }) result else result + song
         }
+    }
+
+    /** 仅手动收藏的在线歌曲需要下载；同曲跨平台只保留一份。 */
+    val missingOnlineSongs: List<Song> get() = likedSongs.filter {
+        OnlineTrackRef.parse(it.path) != null && !isInLibrary(it)
     }
 }
 
-/** 喜欢标记独立持久化，保存在线曲目快照；曲库歌曲固定喜欢。 */
+/** 喜欢独立持久化；本地文件、下载与自建歌单均不隐式设置喜欢。 */
 class FavoriteSongsStore(
     private val dataStore: DataStore<Preferences>,
     songs: SongRepository,
@@ -52,14 +63,14 @@ class FavoriteSongsStore(
     private val json = Json { ignoreUnknownKeys = true }
     private fun decode(prefs: Preferences): List<FavoriteSelection> =
         prefs[key]?.let { json.decodeFromString(it) } ?: emptyList()
-    private val snapshots = combine(dataStore.data, songs.observeSongs()) { prefs, library ->
-        FavoriteSongsState(decode(prefs), library.filter { it.sourceType != SourceType.ONLINE }, loaded = true)
-    }
+    private val snapshots = combine(dataStore.data.map { it[key] }.distinctUntilChanged(), songs.observeSongs()) { raw, library ->
+        FavoriteSongsState(raw?.let { json.decodeFromString(it) } ?: emptyList(), library.filter { it.sourceType != SourceType.ONLINE }, loaded = true)
+            .also { it.likedSongs }
+    }.flowOn(Dispatchers.Default)
     val state = snapshots.stateIn(scope, SharingStarted.Eagerly, FavoriteSongsState())
     suspend fun snapshot(): FavoriteSongsState = snapshots.first()
 
     suspend fun setLiked(song: Song, liked: Boolean): Boolean {
-        if (!liked && snapshot().isInLibrary(song)) return false
         dataStore.edit { prefs ->
             val updated = decode(prefs).filterNot { sameSong(it.track.toSong(), song) } +
                 FavoriteSelection(DownloadTrack.from(song), liked)

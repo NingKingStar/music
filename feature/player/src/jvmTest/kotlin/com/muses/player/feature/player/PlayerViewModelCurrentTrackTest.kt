@@ -59,6 +59,62 @@ import kotlin.test.assertTrue
  * 真实线程池，需要真实等待（runTest 的虚拟时间会让轮询等待失效）。
  */
 class PlayerViewModelCurrentTrackTest {
+
+    @Test
+    fun switchingTracksDoesNotRetainOldArtwork() = runBlocking {
+        val first = onlineSong(id = "online:kw:first", title = "First")
+        val second = onlineSong(id = "online:kw:second", title = "Second").copy(coverUri = null)
+        OnlineTrackSession.remember(listOf(first, second))
+        val port = FakePort()
+        val vm = PlayerViewModel(port, FakeSongDao(), FakeMetadataResolver(), null, null)
+        try {
+            port.setCurrentSong(first.id)
+            awaitUntil { vm.stickyCover.value == first.coverUri }
+            port.setCurrentSong(second.id)
+            awaitUntil { vm.nowPlayingMeta.value?.songId == second.id }
+            assertEquals("Second", vm.nowPlayingMeta.value?.title)
+            assertEquals(null, vm.stickyCover.value)
+            assertEquals(null, vm.lyricsDocument.value)
+        } finally { vm.viewModelScope.cancel() }
+    }
+
+    @Test
+    fun knownCoverDoesNotWaitForSlowScript() = runBlocking {
+        val song = onlineSong(id = "online:kw:slow")
+        OnlineTrackSession.remember(listOf(song))
+        val slow = object : OnlineTrackMetadataResolver {
+            override suspend fun resolveCover(ref: OnlineTrackRef): String? { delay(3000); return null }
+            override suspend fun resolveLyrics(ref: OnlineTrackRef): OnlineTrackLyrics? = null
+        }
+        val port = FakePort()
+        val vm = PlayerViewModel(port, FakeSongDao(), slow, null, null)
+        try {
+            port.setCurrentSong(song.id)
+            awaitUntil(timeoutMs = 1000) { vm.stickyCover.value == song.coverUri }
+        } finally { vm.viewModelScope.cancel() }
+    }
+
+    @Test
+    fun oldMetadataIsNotAppliedToNewSong() = runBlocking {
+        val first = onlineSong(id = "online:kw:old", title = "Old")
+        val second = onlineSong(id = "online:kw:new", title = "New").copy(coverUri = null)
+        OnlineTrackSession.remember(listOf(first, second))
+        val slow = object : OnlineTrackMetadataResolver {
+            override suspend fun resolveCover(ref: OnlineTrackRef): String? { delay(500); return "https://old.example/cover" }
+            override suspend fun resolveLyrics(ref: OnlineTrackRef): OnlineTrackLyrics? = null
+        }
+        val port = FakePort()
+        val vm = PlayerViewModel(port, FakeSongDao(), slow, null, null)
+        try {
+            port.setCurrentSong(first.id)
+            awaitUntil { vm.nowPlayingMeta.value?.songId == first.id }
+            port.setCurrentSong(second.id)
+            awaitUntil { vm.nowPlayingMeta.value?.songId == second.id }
+            assertEquals(null, vm.stickyCover.value)
+            assertEquals("New", vm.nowPlayingMeta.value?.title)
+        } finally { vm.viewModelScope.cancel() }
+    }
+
     @Test
     fun 歌词结束后播放进度仍继续更新() = runBlocking {
         val entity = SongEntity(id = "progress", sourceId = "s1", sourceType = SourceType.LOCAL.name,
@@ -224,6 +280,7 @@ class PlayerViewModelCurrentTrackTest {
         override suspend fun markAllMissing(sourceId: String) = error("unused")
         override suspend fun deleteBySource(sourceId: String) = error("unused")
         override suspend fun deleteById(id: String) = error("unused")
+        override suspend fun markFileMissing(id: String, sourceId: String) = error("unused")
         override suspend fun count(): Int = songs.size
         override suspend fun clearSongAlbumRefs() = error("unused")
         override suspend fun clearSongArtistRefs() = error("unused")

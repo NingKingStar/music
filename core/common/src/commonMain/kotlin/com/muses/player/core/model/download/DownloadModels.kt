@@ -10,12 +10,13 @@ data class DownloadTrack(
     val id: String, val sourceId: String, val reference: String, val title: String,
     val artist: String? = null, val album: String? = null, val durationMs: Long = 0,
     val coverUri: String? = null, val lyrics: String? = null,
+    val sourceType: SourceType = SourceType.ONLINE,
 ) {
     fun toSong() = Song(id, sourceId, reference, title, artist, album, durationMs,
-        durationMs / 1000, coverUri, lyrics, sourceType = SourceType.ONLINE)
+        durationMs / 1000, coverUri, lyrics, sourceType = sourceType)
     companion object {
         fun from(song: Song) = DownloadTrack(song.id, song.sourceId, song.path, song.title,
-            song.artist, song.album, song.durationMs, song.coverUri, song.lyrics)
+            song.artist, song.album, song.durationMs, song.coverUri, song.lyrics, song.sourceType)
     }
 }
 
@@ -61,6 +62,8 @@ data class DownloadTask(
     val localAudioPath: String? = null,
     val localAudioHash: String? = null,
     val localLyrics: String? = null,
+    /** 保存层提供的稳定文件ID；旧任务缺省为空，保留原有引用。 */
+    val savedSongId: String? = null,
 )
 
 /**

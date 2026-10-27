@@ -171,6 +171,48 @@ class DownloadManager(
     private val ready = scope.async { store.recoverInterrupted() }
     private val taskState = RefreshableState(store.tasks, scope, emptyList(), SharingStarted.Eagerly)
     val tasks = taskState.state
+    /** 已保存音乐独立于任务队列，清理任务后仍在已完成页展示。 */
+    val downloadedSongs = store.downloadedSongs.stateIn(scope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** 返回 false 表示文件不存在；调用方须另行确认清理失效记录。 */
+    suspend fun deleteSaved(entry: DownloadedSong, clearMissing: Boolean = false): Boolean =
+        scrapeRetryLock.withLock {
+            ready.await()
+            require(store.downloadedSongs.first().any { it == entry }) { "下载记录已变化，请刷新后重试" }
+            val deleted = if (entry.target.kind == DownloadTargetKind.WEBDAV) {
+                val source = entry.target.sourceId?.let { sources.getSource(it) }
+                    ?: error("保存位置不可用，请检查 WebDAV 音源")
+                check(source.type == SourceType.WEBDAV) { "保存位置已变更，请检查音源" }
+                val base = source.url?.toHttpUrl() ?: error("WebDAV 地址无效")
+                val url = entry.location.toHttpUrl()
+                val basePath = base.encodedPath.trimEnd('/') + "/"
+                require(url.scheme == base.scheme && url.host == base.host && url.port == base.port &&
+                    url.encodedPath.startsWith(basePath) && !url.encodedPath.endsWith('/') &&
+                    url.query == null && url.fragment == null) {
+                    "文件位置与当前音源不一致，请手动检查"
+                }
+                val password = credentials.getPassword(source.id) ?: error("WebDAV 密码未配置")
+                val builder = Request.Builder().url(url).header("Authorization", Credentials.basic(source.username.orEmpty(), password))
+                val request = if (clearMissing) builder.head().build() else builder.delete().build()
+                val safeClient = webDavClient.newBuilder().followRedirects(false).followSslRedirects(false).build()
+                network(request, safeClient) { response ->
+                    when {
+                        response.isSuccessful && clearMissing -> error("文件已存在，请重新确认后删除")
+                        response.isSuccessful -> true
+                        response.code == 404 || response.code == 410 -> false
+                        else -> error("删除失败：HTTP ${response.code}")
+                    }
+                }
+            } else if (clearMissing) {
+                val probe = DownloadTask(entry.taskId, entry.track, savedLocation = entry.location)
+                check(!storage.exists(probe)) { "文件已存在或无法确认，请重新检查" }
+                false
+            } else storage.deleteSaved(entry.location)
+            if (!deleted && !clearMissing) return@withLock false
+            songs.markDownloadedFileMissing(entry.toSong().id, entry.toSong().sourceId)
+            store.forgetDownloaded(entry)
+            true
+        }
     private val sourceState = RefreshableState(sources.observeSources(), scope, emptyList(), SharingStarted.Eagerly)
     val availableSources = sourceState.state
     val defaultTarget = store.defaultTarget.stateIn(scope, SharingStarted.Eagerly, DownloadTarget())
@@ -227,6 +269,70 @@ class DownloadManager(
             favoriteBatchLock.unlock()
         }
     }
+    private val playlistBatchLock = kotlinx.coroutines.sync.Mutex()
+    private val playlistBatchState = MutableStateFlow(false)
+    val preparingPlaylistDownloads = playlistBatchState.asStateFlow()
+
+    /** 批量下载只处理在线条目，复用队列并保留已保存文件。 */
+    fun downloadPlaylist(entries: List<Song>, selectedQuality: String) = scope.launch {
+        if (!playlistBatchLock.tryLock()) return@launch
+        playlistBatchState.value = true
+        try {
+            ready.await()
+            val quality = LxQuality.fromKey(selectedQuality)?.key ?: settings.downloadPreferredQuality.first()
+            val unique = mutableListOf<Song>()
+            for (song in entries) {
+                if (OnlineTrackRef.parse(song.path) != null &&
+                    unique.none { com.muses.player.core.model.sameSong(it, song) }) unique += song
+            }
+            val saved = store.downloadedSongs.first()
+            val skip = mutableSetOf<String>()
+            for (song in unique) {
+                val match = saved.firstOrNull { com.muses.player.core.model.sameSong(it.track.toSong(), song) } ?: continue
+                val probe = DownloadTask(match.taskId, match.track, target = match.target,
+                    status = DownloadStatus.COMPLETED, savedLocation = match.location)
+                if (savedDownloadStillExists(probe)) skip += song.id
+            }
+            val queueBefore = store.load()
+            val missingCompleted = mutableSetOf<String>()
+            for (task in queueBefore.filter { it.status == DownloadStatus.COMPLETED }) {
+                if (unique.any { it.id !in skip && com.muses.player.core.model.sameSong(it, task.track.toSong()) } &&
+                    !savedDownloadStillExists(task)) missingCompleted += task.id
+            }
+            val ids = linkedSetOf<String>()
+            store.update { queue ->
+                val updated = queue.filterNot { it.id in missingCompleted }.toMutableList()
+                for (song in unique) {
+                    if (song.id in skip) continue
+                    val existing = updated.firstOrNull { com.muses.player.core.model.sameSong(it.track.toSong(), song) }
+                    when {
+                        existing == null -> {
+                            val task = DownloadTask(UUID.randomUUID().toString(), DownloadTrack.from(song), quality)
+                            updated.add(task)
+                            ids.add(task.id)
+                        }
+                        existing.status != DownloadStatus.COMPLETED && !existing.status.active -> {
+                            val index = updated.indexOf(existing)
+                            updated[index] = existing.copy(quality = if (existing.localAudioPath == null) quality else existing.quality)
+                            ids.add(existing.id)
+                        }
+                    }
+                }
+                updated
+            }
+            if (ids.isEmpty()) MusesSnackbar.show("没有需要下载的在线歌曲")
+            else {
+                start(ids, store.defaultTarget.first()).join()
+                MusesSnackbar.show("已加入下载：${ids.size} 首，可在下载管理查看")
+            }
+        } catch (e: CancellationException) { throw e }
+        catch (_: Exception) { MusesSnackbar.show("批量下载失败，请重试") }
+        finally {
+            playlistBatchState.value = false
+            playlistBatchLock.unlock()
+        }
+    }
+
     private var active: Job? = null
     private var activeId: String? = null
     private val pendingStarts = mutableSetOf<String>()
@@ -257,30 +363,41 @@ class DownloadManager(
         }
     }
 
-    fun enqueue(song: Song) = scope.launch {
+    fun enqueue(song: Song, startImmediately: Boolean = false, selectedQuality: String? = null) = scope.launch {
         ready.await()
         if (OnlineTrackRef.parse(song.path) == null) { MusesSnackbar.show("仅支持下载 LX 音源歌曲"); return@launch }
         // 已经下过、且文件还在的曲子不再重复入队；文件已被删掉则替换旧记录重新下
         val existing = store.load().firstOrNull { it.track.id == song.id }
-        val quality = settings.downloadPreferredQuality.first()
+        val quality = selectedQuality ?: settings.downloadPreferredQuality.first()
         when {
-            existing == null -> enqueueNew(song, quality)
-            existing.status != DownloadStatus.COMPLETED -> MusesSnackbar.show("歌曲已在下载队列中")
+            existing == null -> enqueueNew(song, quality, startImmediately)
+            existing.status != DownloadStatus.COMPLETED -> {
+                if (startImmediately && !existing.status.active) {
+                    start(setOf(existing.id), store.defaultTarget.first())
+                    MusesSnackbar.show("继续下载，可在下载管理查看进度")
+                } else MusesSnackbar.show(if (existing.status.active) "歌曲正在下载，可在下载管理查看进度" else "歌曲已在下载队列中")
+            }
             savedDownloadStillExists(existing) &&
-                (LxQuality.fromKey(settings.downloadPreferredQuality.first())?.rank ?: 0) <=
+                (LxQuality.fromKey(quality)?.rank ?: 0) <=
                 (LxQuality.fromKey(existing.quality)?.rank ?: 0) ->
                 MusesSnackbar.show("这首歌已经下载过了")
             else -> {
                 // 文件已不存在或用户选择了更高档位，重新入队；是否能升级仍以实际文件音质为准。
                 store.update { list -> list.filterNot { task -> task.id == existing.id } }
-                enqueueNew(song, quality)
+                enqueueNew(song, quality, startImmediately)
             }
         }
     }
 
-    private suspend fun enqueueNew(song: Song, quality: String) {
-        val added = store.enqueue(DownloadTask(UUID.randomUUID().toString(), DownloadTrack.from(song), quality))
-        MusesSnackbar.show(if (added) "添加成功" else "歌曲已在下载队列中")
+    private suspend fun enqueueNew(song: Song, quality: String, startImmediately: Boolean) {
+        val task = DownloadTask(UUID.randomUUID().toString(), DownloadTrack.from(song), quality)
+        val added = store.enqueue(task)
+        if (added && startImmediately) start(setOf(task.id), store.defaultTarget.first())
+        MusesSnackbar.show(when {
+            !added -> "歌曲已在下载队列中"
+            startImmediately -> "已加入下载，可在下载管理查看进度"
+            else -> "已加入队列，请在下载管理开始下载"
+        })
     }
 
     /** 已完成任务的产物是否还在；WebDAV 用一次 HEAD 问远端。 */
@@ -474,6 +591,7 @@ class DownloadManager(
                     it.copy(
                         status = DownloadStatus.COMPLETED,
                         savedLocation = saved.location,
+                        savedSongId = savedDownloadFileId(target, saved),
                         warnings = warnings,
                         transferredBytes = total,
                         resumeValidator = null,
@@ -804,9 +922,7 @@ class DownloadManager(
     ) {
         val sourceId = target.sourceId
         if (target.kind == DownloadTargetKind.DEVICE || sourceId == null) return
-        val stable = java.security.MessageDigest.getInstance("SHA-256")
-            .digest("$sourceId|${saved.physicalPath ?: saved.location}".toByteArray())
-            .joinToString("") { "%02x".format(it) }
+        val stable = savedDownloadFileId(target, saved)
         try {
             songs.upsert(
                 Song(
@@ -815,7 +931,6 @@ class DownloadManager(
                     sourceType = if (target.kind == DownloadTargetKind.WEBDAV) SourceType.WEBDAV else SourceType.LOCAL,
                 ),
             )
-            songs.rebuildDerivedIndexes()
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {

@@ -46,6 +46,14 @@ sealed interface MusesRoute : NavKey {
     @Serializable
     data object Songs : MusesRoute
 
+    /** 原本地与 WebDAV 曲库，由“我的”进入。 */
+    @Serializable
+    data object LocalLibrary : MusesRoute
+
+    /** 我喜欢、已下载及自建歌单共用详情路由。 */
+    @Serializable
+    data class UserCollection(val collectionId: String) : MusesRoute
+
     @Serializable
     data object Albums : MusesRoute
 

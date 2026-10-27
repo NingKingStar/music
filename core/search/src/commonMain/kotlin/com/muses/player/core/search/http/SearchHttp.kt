@@ -20,6 +20,9 @@ import io.ktor.utils.io.readAvailable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import com.muses.player.core.network.ProviderRequestGate
+import com.muses.player.core.data.store.platformNowMs
+import io.ktor.http.Url
 
 /**
  * 在线搜索的 HTTP 客户端。
@@ -32,6 +35,7 @@ class SearchHttp(
     private val client: HttpClient = defaultSearchHttpClient(),
     private val json: Json = SearchJson,
 ) {
+    private val cooldown = mutableMapOf<String, Long>()
 
     suspend fun canOpenAudio(url: String, expectedDurationMs: Long? = null): Boolean {
         val inspectDuration = expectedDurationMs != null && expectedDurationMs >= 90_000
@@ -68,16 +72,16 @@ class SearchHttp(
         url: String,
         referer: String? = null,
         extraHeaders: Map<String, String> = emptyMap(),
-    ): String {
+    ): String = requestGate.withSource(url) {
+        checkCooldown(url)
+        beforeRequest()
         val response: HttpResponse = client.get(url) {
             header(HttpHeaders.UserAgent, desktopUa)
             referer?.let { header(HttpHeaders.Referrer, it) }
             extraHeaders.forEach { (k, v) -> header(k, v) }
         }
-        if (!response.status.isSuccess()) {
-            throw IllegalStateException("http ${response.status.value}")
-        }
-        return response.bodyAsText()
+        verifyResponse(url, response)
+        response.bodyAsText()
     }
 
     /** POST JSON（QQ 音乐 musicu.fcg 用） */
@@ -86,7 +90,9 @@ class SearchHttp(
         body: String,
         referer: String? = null,
         extraHeaders: Map<String, String> = emptyMap(),
-    ): String {
+    ): String = requestGate.withSource(url) {
+        checkCooldown(url)
+        beforeRequest()
         val response: HttpResponse = client.post(url) {
             header(HttpHeaders.UserAgent, desktopUa)
             referer?.let { header(HttpHeaders.Referrer, it) }
@@ -94,10 +100,23 @@ class SearchHttp(
             extraHeaders.forEach { (k, v) -> header(k, v) }
             setBody(body)
         }
-        if (!response.status.isSuccess()) {
-            throw IllegalStateException("http ${response.status.value}")
+        verifyResponse(url, response)
+        response.bodyAsText()
+    }
+
+    private fun checkCooldown(url: String) {
+        val remaining = synchronized(cooldown) { (cooldown[Url(url).host] ?: 0L) - platformNowMs() }
+        check(remaining <= 0) { "平台请求受限，请在${(remaining + 999) / 1000}秒后重试" }
+    }
+
+    private fun verifyResponse(url: String, response: HttpResponse) {
+        if (response.status.value == 429 || response.status.value == 403) {
+            val wait = if (response.status.value == 429)
+                searchRetryDelay(response.headers[HttpHeaders.RetryAfter], platformNowMs()) else 30_000L
+            synchronized(cooldown) { cooldown[Url(url).host] = platformNowMs() + wait }
+            throw IllegalStateException("平台暂时限制访问，请稍后重试（HTTP ${response.status.value}）")
         }
-        return response.bodyAsText()
+        check(response.status.isSuccess()) { "http ${response.status.value}" }
     }
 
     /**
@@ -155,6 +174,8 @@ class SearchHttp(
     }
 
     companion object {
+        // 所有搜索/榜单客户端共用同源间隔；不会因切页或更换关键词另建限流器。
+        private val requestGate = ProviderRequestGate(intervalMs = 800L)
         const val DEFAULT_UA: String =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -169,6 +190,8 @@ class SearchHttp(
         }
     }
 }
+
+internal expect fun searchRetryDelay(value: String?, nowMs: Long): Long
 
 /** 搜索响应结构不稳定：宽松解析 */
 internal val SearchJson: Json = Json {

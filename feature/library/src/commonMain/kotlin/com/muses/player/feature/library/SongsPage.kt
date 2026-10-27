@@ -371,6 +371,7 @@ fun SongsPage(
                             Spacer(Modifier.width(SongListLayout.coverGap))
                         },
                         after = {
+                            com.muses.player.core.ui.components.SongPlaylistButton(song)
                             com.muses.player.core.ui.components.SongMoreButton(
                                 onClick = { actionSong = song },
                             )

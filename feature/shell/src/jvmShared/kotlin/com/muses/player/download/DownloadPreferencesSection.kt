@@ -23,7 +23,7 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 
 /** 设置页打开中的下载设置弹窗（null = 未打开）。 */
-private enum class DownloadSettingSheet { TARGET, QUALITY, DEVICE_DIRECTORY }
+private enum class DownloadSettingSheet { TARGET, QUALITY, PLAY_QUALITY, DOWNLOAD_MODE, DEVICE_DIRECTORY }
 
 /**
  * 设置页「下载」分组：保存位置、下载品质、设备下载目录。
@@ -38,6 +38,8 @@ fun DownloadPreferencesSection() {
     val defaultTarget by manager.defaultTarget.collectAsState()
     val deviceDirectory by settings.downloadDeviceDirectory.collectAsState("")
     val quality by settings.downloadPreferredQuality.collectAsState("320k")
+    val playQuality by settings.onlinePreferredQuality.collectAsState("320k")
+    val chooseQuality by settings.chooseDownloadQuality.collectAsState(true)
     val scope = rememberCoroutineScope()
     var sheet by remember { mutableStateOf<DownloadSettingSheet?>(null) }
     val targets = remember(sources) { downloadTargetOptions(sources) }
@@ -48,6 +50,16 @@ fun DownloadPreferencesSection() {
 
     SettingsBlockTitle("下载")
     Card(modifier = Modifier.padding(horizontal = 12.dp)) {
+        ArrowPreference(
+            title = "在线播放优先音质",
+            summary = qualityLabel(playQuality),
+            onClick = { sheet = DownloadSettingSheet.PLAY_QUALITY },
+        )
+        ArrowPreference(
+            title = "单曲下载方式",
+            summary = if (chooseQuality) "下载前选择音质" else "按默认音质直接下载",
+            onClick = { sheet = DownloadSettingSheet.DOWNLOAD_MODE },
+        )
         ArrowPreference(
             title = "保存位置",
             // 保存位置指向已删除的音源时，提示下载会自动回退到设备下载目录
@@ -88,6 +100,26 @@ fun DownloadPreferencesSection() {
                 sheet = null
             }
         },
+    )
+    MusesActionsSheet(
+        opened = sheet == DownloadSettingSheet.PLAY_QUALITY,
+        onDismiss = { sheet = null },
+        label = "在线播放优先音质",
+        items = LxQuality.entries.map { option ->
+            MusesActionItem(option.label) {
+                scope.launch { settings.setOnlinePreferredQuality(option.key) }
+                sheet = null
+            }
+        },
+    )
+    MusesActionsSheet(
+        opened = sheet == DownloadSettingSheet.DOWNLOAD_MODE,
+        onDismiss = { sheet = null },
+        label = "单曲下载方式",
+        items = listOf(
+            MusesActionItem("下载前选择音质") { scope.launch { settings.setChooseDownloadQuality(true) }; sheet = null },
+            MusesActionItem("按默认音质直接下载") { scope.launch { settings.setChooseDownloadQuality(false) }; sheet = null },
+        ),
     )
     MusesActionsSheet(
         opened = sheet == DownloadSettingSheet.DEVICE_DIRECTORY,

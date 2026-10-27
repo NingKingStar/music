@@ -20,6 +20,106 @@ import okio.Buffer
 import kotlin.test.*
 
 class DownloadManagerTest {
+    @Test fun `删除下载只删除目标文件并保留歌单和喜欢`() = runBlocking {
+        Harness().use { h ->
+            val file = File(h.root, "song.mp3").apply { writeText("audio") }
+            val other = File(h.root, "other.mp3").apply { writeText("other") }
+            val task = DownloadTask("delete-1", DownloadTrack.from(h.song()), target = h.target,
+                status = DownloadStatus.COMPLETED, savedLocation = file.absolutePath)
+            h.store.update { listOf(task) }
+            val entry = h.store.downloadedSongs.first().single()
+            val favorites = FavoriteSongsStore(h.dataStore, h.songs, h.scope)
+            val playlists = UserPlaylistStore(h.dataStore)
+            favorites.setLiked(entry.toSong(), true)
+            val playlistId = playlists.create("测试", entry.toSong())
+            assertTrue(h.manager.deleteSaved(entry))
+            assertFalse(file.exists())
+            assertTrue(other.exists())
+            assertTrue(h.store.downloadedSongs.first().isEmpty())
+            assertTrue(h.store.load().isEmpty())
+            assertEquals(h.song().id, playlists.snapshot().single { it.id == playlistId }.tracks.single().id)
+            assertEquals(h.song().id, favorites.snapshot().selections.single().track.id)
+        }
+    }
+
+    @Test fun `远端删除失败保留记录失效记录须单独确认`() = runBlocking {
+        Harness().use { h ->
+            val target = DownloadTarget(DownloadTargetKind.WEBDAV, h.source.id, "/Music", "网盘")
+            val task = DownloadTask("delete-2", DownloadTrack.from(h.song()), target = target,
+                status = DownloadStatus.COMPLETED, savedLocation = h.server.url("/dav/Music/song.mp3").toString())
+            h.store.update { listOf(task) }
+            val entry = h.store.downloadedSongs.first().single()
+            h.server.enqueue(MockResponse().setResponseCode(403))
+            assertTrue(runCatching { h.manager.deleteSaved(entry) }.isFailure)
+            assertEquals(1, h.store.downloadedSongs.first().size)
+            h.server.enqueue(MockResponse().setResponseCode(404))
+            assertFalse(h.manager.deleteSaved(entry))
+            assertEquals(1, h.store.downloadedSongs.first().size)
+            h.server.enqueue(MockResponse().setResponseCode(404))
+            assertTrue(h.manager.deleteSaved(entry, clearMissing = true))
+            assertTrue(h.store.downloadedSongs.first().isEmpty())
+            assertEquals("DELETE", h.server.takeRequest().method)
+            assertEquals("DELETE", h.server.takeRequest().method)
+            assertEquals("HEAD", h.server.takeRequest().method)
+        }
+    }
+
+    @Test fun `远端删除仅发送一次指定文件请求`() = runBlocking {
+        Harness().use { h ->
+            val target = DownloadTarget(DownloadTargetKind.WEBDAV, h.source.id, "/Music", "网盘")
+            val task = DownloadTask("delete-3", DownloadTrack.from(h.song()), target = target,
+                status = DownloadStatus.COMPLETED, savedLocation = h.server.url("/dav/Music/song.mp3").toString())
+            h.store.update { listOf(task) }
+            val entry = h.store.downloadedSongs.first().single()
+            h.server.enqueue(MockResponse().setResponseCode(204))
+            assertTrue(h.manager.deleteSaved(entry))
+            val request = h.server.takeRequest()
+            assertEquals("DELETE", request.method)
+            assertEquals("/dav/Music/song.mp3", request.path)
+            assertEquals(1, h.server.requestCount)
+            assertTrue(h.store.downloadedSongs.first().isEmpty())
+        }
+    }
+
+    @Test fun `远端下载记录不能指向目录删除`() = runBlocking {
+        Harness().use { h ->
+            val target = DownloadTarget(DownloadTargetKind.WEBDAV, h.source.id, "/Music", "网盘")
+            h.store.update { listOf(DownloadTask("delete-dir", DownloadTrack.from(h.song()), target = target,
+                status = DownloadStatus.COMPLETED, savedLocation = h.server.url("/dav/Music/").toString())) }
+            val entry = h.store.downloadedSongs.first().single()
+            assertTrue(runCatching { h.manager.deleteSaved(entry) }.isFailure)
+            assertEquals(0, h.server.requestCount)
+            assertEquals(1, h.store.downloadedSongs.first().size)
+        }
+    }
+    @Test fun `点击下载立即开始且沿用用户保存位置`() = runBlocking {
+        Harness().use { h ->
+            h.store.setDefaultTarget(h.target)
+            h.server.enqueue(MockResponse().setBody(Buffer().write(wav(16044))))
+            h.manager.enqueue(h.song(), startImmediately = true).join()
+            val completed = h.await(DownloadStatus.COMPLETED)
+            assertEquals(h.target, completed.target)
+            assertTrue(completed.downloadedBytes > 0)
+            val saved = h.manager.downloadedSongs.first { it.isNotEmpty() }
+            assertEquals(completed.savedLocation, saved.single().location)
+            h.manager.remove(completed.id).join()
+            assertTrue(h.store.load().isEmpty())
+            assertEquals(saved.single().location, h.store.downloadedSongs.first().single().location)
+        }
+    }
+
+    @Test fun `再次点击下载复用待下载任务而非重复排队`() = runBlocking {
+        Harness().use { h ->
+            h.store.setDefaultTarget(h.target)
+            h.server.enqueue(MockResponse().setBody(Buffer().write(wav(16044))))
+            h.manager.enqueue(h.song()).join()
+            val original = h.store.load().single().id
+            h.manager.enqueue(h.song(), startImmediately = true).join()
+            assertEquals(original, h.await(DownloadStatus.COMPLETED).id)
+            assertEquals(1, h.store.load().size)
+        }
+    }
+
     @Test fun `不断变化的试听签名地址不会让下载无限重试`() = runBlocking {
         for (crossPlatform in listOf(false, true)) {
             Harness(useDefaultResolver = true,
@@ -247,7 +347,7 @@ class DownloadManagerTest {
         assertNull(downloadQualityReport(LxQuality.FLAC, "flac", sixteenBit).warning)
     }
 
-    @Test fun favoriteMarksPersistAndLibrarySongsAreLikedByDefaultAcrossPlatforms() = runBlocking {
+    @Test fun favoriteMarksRemainIndependentOfLibraryAcrossPlatforms() = runBlocking {
         Harness().use { h ->
             val online = h.song()
             val library = kotlinx.coroutines.flow.MutableStateFlow(emptyList<Song>())
@@ -259,11 +359,11 @@ class DownloadManagerTest {
             assertFalse(favorites.snapshot().isLiked(online))
             library.value = listOf(online.copy(
                 id = "local:1", path = "/music/test.mp3", sourceType = SourceType.LOCAL))
-            assertTrue(favorites.snapshot().isLiked(online))
+            assertFalse(favorites.snapshot().isLiked(online))
             assertTrue(favorites.snapshot().missingOnlineSongs.isEmpty())
-            assertFalse(favorites.setLiked(online, false))
+            assertTrue(favorites.setLiked(online, false))
             val restored = com.muses.player.core.data.repository.FavoriteSongsStore(h.dataStore, repository, h.scope)
-            assertTrue(restored.snapshot().isLiked(online))
+            assertFalse(restored.snapshot().isLiked(online))
             favorites.setLiked(online, true)
             assertTrue(restored.snapshot().isLiked(online.copy(id = "online:wy:2")))
             library.value = emptyList()
@@ -382,6 +482,30 @@ class DownloadManagerTest {
             manager.tasks.first { list -> list.any { it.status == status } }.first { it.status == status }
         }
         override fun close() { scope.cancel(); server.close(); root.deleteRecursively() }
+    }
+
+
+    @Test fun playlistBatchReusesQueueAndAvoidsDownloadedDuplicates() = runBlocking {
+        Harness().use { h ->
+            val first = h.song()
+            val second = h.song("online:kw:2").copy(title = "Other song")
+            val local = first.copy(id = "local:1", path = "/local/track.mp3", sourceType = SourceType.LOCAL)
+            h.manager.enqueue(first).join()
+            val queuedId = h.store.load().single().id
+            h.store.setDefaultTarget(h.target)
+            repeat(2) { h.server.enqueue(MockResponse().setBody(Buffer().write(wav()))) }
+            h.manager.downloadPlaylist(listOf(first, second, first, local), "flac").join()
+            withTimeout(15_000) { h.manager.tasks.first { it.count { task -> task.status == DownloadStatus.COMPLETED } == 2 } }
+            val done = h.store.load()
+            assertEquals(2, done.size)
+            assertEquals(queuedId, done.first { it.track.id == first.id }.id)
+            assertEquals(setOf("flac"), done.map { it.quality }.toSet())
+            assertEquals(2, h.resolves)
+            h.manager.downloadPlaylist(listOf(first, second), "320k").join()
+            assertEquals(2, h.store.load().size)
+            assertEquals(2, h.resolves)
+            assertFalse(h.manager.preparingPlaylistDownloads.value)
+        }
     }
 
     @Test fun enqueueDoesNotResolveOrDownloadAndDeduplicates() = runBlocking {

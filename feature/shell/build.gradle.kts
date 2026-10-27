@@ -32,6 +32,7 @@ kotlin {
             implementation(project(":feature:sources"))
             // 首页（搜索框 + 排行榜 + 猜你喜欢）：MusesApp 注册 Home entry
             implementation(project(":feature:home"))
+            implementation(project(":core:search"))
             // AI 推荐：设置页 AI 分组需注入 AiChatClient 做连接测试
             implementation(project(":core:ai"))
             // compose/miuix/coil 经 ui-shared api 透传，此处不再重复声明

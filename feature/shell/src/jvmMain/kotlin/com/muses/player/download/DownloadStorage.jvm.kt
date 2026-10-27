@@ -14,6 +14,14 @@ import kotlinx.coroutines.flow.first
 actual fun createDownloadStorage(settings: SettingsRepository): DownloadStorage = object : DownloadStorage {
     override val cacheDirectory = File(System.getProperty("java.io.tmpdir"), "muses-downloads")
     override val stagingDirectory = File(com.muses.player.core.data.platform.PlatformDirs.appDataDir(), "pending-downloads")
+    override suspend fun deleteSaved(location: String): Boolean {
+        val file = File(location)
+        require(file.isAbsolute && !Files.isSymbolicLink(file.toPath())) { "文件位置无效" }
+        if (!file.exists()) return false
+        require(file.isFile) { "目标不是文件" }
+        check(file.delete()) { "无法删除文件，请检查权限" }
+        return true
+    }
     override suspend fun exists(task: DownloadTask): Boolean {
         val location = task.savedLocation ?: return false
         return File(location).isFile

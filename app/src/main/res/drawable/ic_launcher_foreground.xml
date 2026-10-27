@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- 占位图标：播放三角形，后续里程碑替换正式图标 -->
+<!-- K方案：奶油色眨眼精灵；背景由adaptive-icon独立绘制，保留系统裁切余量。 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#FF7FB5FF"
-        android:pathData="M44,36 L76,54 L44,72 Z" />
+    <group android:translateX="18" android:translateY="18" android:scaleX="0.225" android:scaleY="0.225">
+        <path android:fillColor="#FFF1DB" android:pathData="M137,66 C93,65 52,100 52,145 C52,187 85,219 126,222 C147,222 147,237 136,250 C129,261 119,270 109,276 C105,279 112,280 120,279 C175,278 212,240 216,188 C221,135 204,91 173,75 C162,69 149,66 137,66 Z" />
+        <path android:fillColor="#FFF1DB" android:pathData="M222,95 C216,84 217,56 222,48 C228,37 242,40 245,48 C251,61 237,69 230,82 C226,88 224,93 222,95 Z M235,124 C239,106 251,86 266,81 C278,77 286,85 282,95 C280,102 268,106 258,110 C249,114 241,119 235,124 Z M207,220 C226,203 237,184 240,163 C243,147 260,141 263,155 C269,180 240,210 207,220 Z" />
+        <path android:fillColor="#771C19" android:pathData="M113,136 C108,125 111,116 119,117 C127,117 133,126 135,136 C138,145 134,153 128,153 C121,154 116,147 113,136 Z" />
+        <path android:strokeColor="#771C19" android:strokeWidth="8" android:strokeLineCap="round" android:fillColor="@android:color/transparent" android:pathData="M161,126 C163,113 176,105 185,115" />
+    </group>
 </vector>

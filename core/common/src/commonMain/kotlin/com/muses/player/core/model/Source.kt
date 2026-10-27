@@ -1,6 +1,7 @@
 package com.muses.player.core.model
 
 /** 音源类型 */
+@kotlinx.serialization.Serializable
 enum class SourceType {
     /** 本地目录（SAF tree uri / 媒体库路径前缀） */
     LOCAL,

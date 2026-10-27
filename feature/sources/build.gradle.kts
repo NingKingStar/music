@@ -32,6 +32,7 @@ kotlin {
             // compose/miuix 经 ui-shared api 透传，此处不再重复声明
             implementation(libs.androidx.lifecycle.viewmodel)
             implementation(libs.kotlinx.coroutines.core)
+            implementation(libs.datastore.preferences)
             // P2a Koin（统一 4.2.0；KMP sourceSets 依赖处理器不支持 platform(BOM)，toml bundles 已收敛版本）
             implementation(libs.bundles.koin.kmp)
         }
