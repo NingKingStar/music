@@ -42,7 +42,7 @@ class MusicBrainzClient(private val http: ScrapeHttp, private val now: () -> Lon
     internal data class Recording(val hit: TextMetaHit, val releaseId: String?)
     private val mutex = Mutex()
     private val cache = linkedMapOf<List<String?>, Pair<Long, List<Recording>>>()
-    private val headers = mapOf("User-Agent" to "Muses/0.9 (https://github.com/Happier-X/muses)", "Accept" to "application/json")
+    private val headers = mapOf("User-Agent" to "Muses/0.9 (https://github.com/NingKingStar/music)", "Accept" to "application/json")
     internal suspend fun search(query: OnlineTextQuery): List<Recording> {
         if (query.title.isBlank()) return emptyList()
         val key = listOf(query.title.trim(), query.artist?.trim())

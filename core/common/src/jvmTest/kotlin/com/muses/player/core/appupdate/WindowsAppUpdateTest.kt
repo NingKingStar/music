@@ -12,7 +12,7 @@ class WindowsAppUpdateTest {
 
     private fun releaseJson(
         tag: String = "v0.5.6",
-        htmlUrl: String = "https://github.com/Happier-X/muses/releases/tag/v0.5.6",
+        htmlUrl: String = "https://github.com/NingKingStar/music/releases/tag/v0.5.6",
         body: String = "### 更新内容\\n- 应用内更新",
         assets: String = """
             {"name":"muses-v0.5.6.apk","browser_download_url":"https://example.com/a.apk","size":123},
@@ -31,7 +31,7 @@ class WindowsAppUpdateTest {
     fun 正常响应解析出MSI信息() {
         val info = parseWindowsRelease(releaseJson())
         assertEquals("v0.5.6", info?.tag)
-        assertEquals("https://github.com/Happier-X/muses/releases/tag/v0.5.6", info?.htmlUrl)
+        assertEquals("https://github.com/NingKingStar/music/releases/tag/v0.5.6", info?.htmlUrl)
         assertEquals("https://example.com/Muses-v0.5.6.msi", info?.msiUrl)
         assertEquals("Muses-v0.5.6.msi", info?.msiName)
         assertEquals(45678901L, info?.msiSizeBytes)

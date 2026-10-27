@@ -20,7 +20,7 @@ import kotlinx.serialization.json.JsonPrimitive
  */
 
 /** 供测试断言 UA（Web 导出 LRCLIB_USER_AGENT） */
-internal const val LRCLIB_USER_AGENT = "Muses/0.1.2 (local music player; https://github.com/Happier-X/muses)"
+internal const val LRCLIB_USER_AGENT = "Muses/0.1.2 (local music player; https://github.com/NingKingStar/music)"
 
 private val LRCLIB_HEADERS = mapOf(
     "User-Agent" to LRCLIB_USER_AGENT,

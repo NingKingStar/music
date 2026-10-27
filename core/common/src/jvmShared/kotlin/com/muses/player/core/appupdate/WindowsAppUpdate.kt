@@ -78,7 +78,7 @@ suspend fun fetchWindowsRelease(currentVersion: String): WindowsReleaseInfo? {
     return withContext(Dispatchers.IO) {
         var connection: java.net.HttpURLConnection? = null
         try {
-            connection = java.net.URL("https://api.github.com/repos/Happier-X/muses/releases/latest")
+            connection = java.net.URL(LATEST_RELEASE_API_URL)
                 .openConnection() as java.net.HttpURLConnection
             connection.requestMethod = "GET"
             connection.setRequestProperty("Accept", "application/vnd.github.v3+json")
