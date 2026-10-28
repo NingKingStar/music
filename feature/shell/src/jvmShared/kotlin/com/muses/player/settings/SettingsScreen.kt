@@ -87,6 +87,7 @@ fun SettingsScreen(
                 // ---- 播放设置 ----
                 SettingsBlockTitle("播放")
                 Card(modifier = Modifier.padding(horizontal = 12.dp)) {
+                    DiagnosticsPreference()
                     AudioFocusPreference()
                     SwitchPreference(
                         title = "播放控件歌词",

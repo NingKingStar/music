@@ -31,6 +31,7 @@ class MusesApplication : Application(), Configuration.Provider {
             androidContext(this@MusesApplication)
             modules(appModules)
         }
+        installDiagnostics(this)
         // 强制 jaudiotagger 走 Android 分支，避免 StandardArtwork 触发 javax.imageio.ImageIO（Android 不存在）
         try {
             TagOptionSingleton.getInstance().setAndroid(true)

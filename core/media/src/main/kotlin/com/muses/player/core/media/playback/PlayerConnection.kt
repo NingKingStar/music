@@ -234,6 +234,7 @@ class PlayerConnection constructor(
 
     /** 从歌曲列表中选择 songId 开始播放（WebDAV 直接 HTTP 流播，标签由 ExoPlayer 解析回退显示） */
     override fun play(songId: String, songs: List<com.muses.player.core.model.Song>) {
+        com.muses.player.core.data.diagnostics.Diagnostics.beginPlayback(songId, "user")
         // 用户主动切歌：重置恢复链与错误状态（controller.ts 语义）
         recoveryController.reset()
         recoveryController.clearError()
@@ -251,6 +252,7 @@ class PlayerConnection constructor(
     }
 
     private fun applyPlayback(songId: String, songs: List<com.muses.player.core.model.Song>) {
+        com.muses.player.core.data.diagnostics.Diagnostics.record("queue_publish", com.muses.player.core.data.diagnostics.Diagnostics.contextForSong(songId) + mapOf("song" to com.muses.player.core.data.diagnostics.Diagnostics.anonymous(songId), "count" to songs.size.toString()))
         val player = controller ?: return
         // 在线曲目不入库：登记会话级临时表，供 songLookup 回退（enqueue/队列恢复按 id 查库的场景）。
         // **必须在 setMediaItems 之前同步登记**：登记表基于 StateFlow，写入即时可见；
@@ -320,9 +322,11 @@ class PlayerConnection constructor(
                 ?.takeIf { it.startsWith("http", ignoreCase = true) }
                 ?.let { metadata.setArtworkUri(Uri.parse(it)) }
         }
+        val playbackUri = resolveUri(song)
+        com.muses.player.core.data.diagnostics.Diagnostics.bindTrack(playbackUri.toString(), song.id)
         return MediaItem.Builder()
             .setMediaId(song.id)
-            .setUri(resolveUri(song))
+            .setUri(playbackUri)
             .setRequestMetadata(PlaybackSourceMetadata.requestMetadata(song.sourceType))
             .setMediaMetadata(metadata.build())
             .build()
@@ -340,11 +344,13 @@ class PlayerConnection constructor(
     }
 
     override fun playPause() {
+        com.muses.player.core.data.diagnostics.Diagnostics.record("control_intent", com.muses.player.core.data.diagnostics.Diagnostics.contextForSong(controller?.currentMediaItem?.mediaId) + mapOf("origin" to "user", "reason" to "paused"))
         val player = controller ?: return
         if (player.isPlaying) player.pause() else player.play()
     }
 
     override fun seekTo(positionMs: Long) {
+        com.muses.player.core.data.diagnostics.Diagnostics.record("control_intent", com.muses.player.core.data.diagnostics.Diagnostics.contextForSong(controller?.currentMediaItem?.mediaId) + mapOf("origin" to "user", "reason" to "seek"))
         controller?.seekTo(positionMs)
     }
 
@@ -367,6 +373,7 @@ class PlayerConnection constructor(
 
     /** 清空队列 */
     override fun clearQueueItems() {
+        com.muses.player.core.data.diagnostics.Diagnostics.record("control_intent", com.muses.player.core.data.diagnostics.Diagnostics.contextForSong(controller?.currentMediaItem?.mediaId) + mapOf("origin" to "user", "reason" to "queue"))
         controller?.clearMediaItems()
     }
 
@@ -393,6 +400,7 @@ class PlayerConnection constructor(
     }
 
     override fun skipToNext() {
+        com.muses.player.core.data.diagnostics.Diagnostics.record("control_intent", com.muses.player.core.data.diagnostics.Diagnostics.contextForSong(controller?.currentMediaItem?.mediaId) + mapOf("origin" to "user", "reason" to "next"))
         controller?.let { c ->
             val count = c.mediaItemCount
             if (count <= 1) { c.seekTo(0); return@let }
@@ -403,6 +411,7 @@ class PlayerConnection constructor(
     }
 
     override fun skipToPrevious() {
+        com.muses.player.core.data.diagnostics.Diagnostics.record("control_intent", com.muses.player.core.data.diagnostics.Diagnostics.contextForSong(controller?.currentMediaItem?.mediaId) + mapOf("origin" to "user", "reason" to "previous"))
         controller?.let { c ->
             val count = c.mediaItemCount
             if (count <= 1) { c.seekTo(0); return@let }
@@ -427,10 +436,12 @@ class PlayerConnection constructor(
     }
 
     override fun play() {
+        com.muses.player.core.data.diagnostics.Diagnostics.record("control_intent", com.muses.player.core.data.diagnostics.Diagnostics.contextForSong(controller?.currentMediaItem?.mediaId) + mapOf("origin" to "user", "reason" to "playing"))
         controller?.play()
     }
 
     override fun pause() {
+        com.muses.player.core.data.diagnostics.Diagnostics.record("control_intent", com.muses.player.core.data.diagnostics.Diagnostics.contextForSong(controller?.currentMediaItem?.mediaId) + mapOf("origin" to "user", "reason" to "paused"))
         controller?.pause()
     }
 
@@ -439,6 +450,7 @@ class PlayerConnection constructor(
     }
 
     fun stop() {
+        com.muses.player.core.data.diagnostics.Diagnostics.record("control_intent", com.muses.player.core.data.diagnostics.Diagnostics.contextForSong(controller?.currentMediaItem?.mediaId) + mapOf("origin" to "user", "reason" to "stop"))
         controller?.stop()
     }
 
