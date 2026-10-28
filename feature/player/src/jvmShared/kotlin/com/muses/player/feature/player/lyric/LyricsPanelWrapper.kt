@@ -1,8 +1,12 @@
 package com.muses.player.feature.player.lyric
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import com.muses.player.core.lyrics.model.LyricsDocument
+
+val LocalPlaybackLyricsRetry = staticCompositionLocalOf<(() -> Unit)?> { null }
+val LocalPlaybackLyricsLoading = staticCompositionLocalOf { false }
 
 @Composable
 fun LyricsPanel(

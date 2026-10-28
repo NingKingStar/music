@@ -14,7 +14,18 @@ import com.muses.player.core.lyrics.amll.AmllTtmlDbClient
 class LyricsMatcher(
     private val amllClient: AmllTtmlDbClient,
     private val fallbackProviders: List<LyricsProvider>,
+    private val playbackCacheDirectory: (() -> java.io.File)? = null,
+    private val localLyrics: (suspend (OnlineLyricsQuery) -> String?)? = null,
 ) {
+    private val playbackLoader by lazy { ProgressiveLyricsLoader(amllClient, fallbackProviders,
+        cacheDirectory = playbackCacheDirectory, localLyrics = localLyrics) }
+
+    fun observePlayback(query: OnlineLyricsQuery,
+        metadata: com.muses.player.core.model.online.OnlineTrackMetadataResolver? = null,
+        embeddedText: String? = null,
+    ) = playbackLoader.observe(query, metadata, embeddedText)
+
+    suspend fun retryPlayback(songId: String) = playbackLoader.invalidate(songId)
 
     /**
      * amll 优先；miss/失败后串行 fallback；任一命中即停。

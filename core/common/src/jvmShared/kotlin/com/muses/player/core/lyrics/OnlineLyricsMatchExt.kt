@@ -49,7 +49,11 @@ suspend fun LyricsMatcher.matchDocument(
         ),
     )
     if (result !is OnlineLyricsMatchResult.Ok) return null
-    return withContext(Dispatchers.Default) {
+    return parseLyricsMatch(result)
+}
+
+internal suspend fun parseLyricsMatch(result: OnlineLyricsMatchResult.Ok): LyricsDocument? =
+    withContext(Dispatchers.Default) {
         val translation = result.translationText
         if (translation.isNullOrBlank()) {
             LyricsParser.parseDocument(result.text)
@@ -61,4 +65,17 @@ suspend fun LyricsMatcher.matchDocument(
             }
         }
     }
-}
+
+/** 播放专用渐进通道；脚本与平台互不等待，所有播放 UI 共享缓存及进行中的查询。 */
+fun LyricsMatcher.observeDocuments(
+    song: com.muses.player.core.model.Song,
+    metadata: com.muses.player.core.model.online.OnlineTrackMetadataResolver? = null,
+): kotlinx.coroutines.flow.Flow<PlaybackLyricsUpdate> = observePlayback(
+    OnlineLyricsQuery(
+        songId = song.id, title = song.title, artist = song.artist, album = song.album,
+        durationSec = song.durationMs.takeIf { it > 0 }?.let { it / 1000.0 }
+            ?: song.durationSec.takeIf { it > 0 }?.toDouble(),
+        // 原始平台 ID 对应用户选择的版本，不能因音频换源而丢失该版本的直接歌词入口。
+        trackRef = com.muses.player.core.model.online.OnlineTrackRef.parse(song.path),
+    ), metadata, song.lyrics,
+)

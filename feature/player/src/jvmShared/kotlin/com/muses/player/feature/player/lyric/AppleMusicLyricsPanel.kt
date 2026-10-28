@@ -596,12 +596,18 @@ internal fun AppleMusicLyricsPanel(
                 )
             }
             document == null -> {
-                Text(
-                    text = "空空如也~",
-                    modifier = Modifier.align(Alignment.Center),
-                    color = contentColor.copy(alpha = 0.42f),
-                    style = MiuixTheme.textStyles.title4,
-                )
+                val retry = LocalPlaybackLyricsRetry.current
+                val loading = LocalPlaybackLyricsLoading.current
+                Column(Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = if (loading) "正在加载歌词…" else "暂无歌词",
+                        color = contentColor.copy(alpha = 0.52f),
+                        style = MiuixTheme.textStyles.title4,
+                    )
+                    if (retry != null && !loading) {
+                        top.yukonga.miuix.kmp.basic.TextButton(text = "重新加载歌词", onClick = retry)
+                    }
+                }
             }
             else -> {
                 val annotationHeightPx = annotationFontPx * 1.2f * 2f + annotationSpacingPx * 2f

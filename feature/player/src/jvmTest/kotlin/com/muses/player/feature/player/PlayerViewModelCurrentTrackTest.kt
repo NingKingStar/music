@@ -385,7 +385,8 @@ class PlayerViewModelCurrentTrackTest {
         val viewModel = PlayerViewModel(port, FakeSongDao(), resolver, matcher, null)
 
         port.setCurrentSong(song.id)
-        awaitUntil { viewModel.lyricsDocument.value != null }
+        // 渐进加载允许先到的行歌词先显示；脚本逐字到达后必须升级，不能停留在低档结果。
+        awaitUntil { viewModel.lyricsDocument.value?.lines?.firstOrNull()?.syllables?.size == 2 }
 
         val line = viewModel.lyricsDocument.value?.lines?.first()
         assertEquals("脚本", line?.text)

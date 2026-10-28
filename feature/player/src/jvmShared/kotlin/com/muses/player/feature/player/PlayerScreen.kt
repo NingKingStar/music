@@ -167,6 +167,7 @@ fun PlayerScreen(
     val shuffleModeEnabled by viewModel.shuffleModeEnabled.collectAsStateWithLifecycle()
     val parsedLines by viewModel.parsedLines.collectAsStateWithLifecycle()
     val lyricsDocument by viewModel.lyricsDocument.collectAsStateWithLifecycle()
+    val lyricsLoading by viewModel.lyricsLoading.collectAsStateWithLifecycle()
     val hasTranslation by viewModel.hasTranslation.collectAsStateWithLifecycle()
     val translationEnabled by viewModel.translationEnabled.collectAsStateWithLifecycle()
     val lyricPosition by viewModel.lyricPosition.collectAsStateWithLifecycle()
@@ -233,6 +234,9 @@ fun PlayerScreen(
     CompositionLocalProvider(
         LocalPlayerContentColor provides if (coverContentColorEnabled) contentColor else Color.White,
         LocalImmersiveFavoriteSong provides favoriteSong,
+        com.muses.player.feature.player.lyric.LocalPlaybackLyricsRetry provides
+            if (currentMeta?.isOnline == true) viewModel::retryLyrics else null,
+        com.muses.player.feature.player.lyric.LocalPlaybackLyricsLoading provides lyricsLoading,
     ) {
         BoxWithConstraints(
         // clipToBounds：宿主在转场中平移整页，这里裁掉视口外内容，避免屏外绘制。

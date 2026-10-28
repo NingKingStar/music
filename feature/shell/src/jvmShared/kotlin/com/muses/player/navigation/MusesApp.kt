@@ -84,6 +84,7 @@ import com.muses.player.core.data.repository.SettingsRepository
 import com.muses.player.core.data.repository.SongRepository
 import com.muses.player.core.lyrics.LyricsMatcher
 import com.muses.player.core.lyrics.matchDocument
+import com.muses.player.core.lyrics.observeDocuments
 import com.muses.player.core.lyrics.model.LyricsDocument
 import com.muses.player.core.lyrics.parser.LxLyricParser
 import com.muses.player.core.model.Song
@@ -254,17 +255,31 @@ class MainViewModel constructor(
                     lyricsDocument = null
                     _currentLyricLine.value = null
                     _currentLyricMarquee.value = null
-                    val doc = when {
-                        songEntity != null -> withContext(Dispatchers.Default) {
+                    if (songEntity != null) {
+                        val doc = withContext(Dispatchers.Default) {
                             LyricsParser.parseDocument(songEntity.lyrics)
                         }
-                        // 在线曲目不入库：歌词走洛雪脚本 `lyric` 动作（内存态，不写库）
-                        online != null -> loadOnlineLyrics(online)
-                        else -> null
-                    }
-                    if (songId == playback.currentSongId.value) {
-                        lyricsDocument = doc
-                        lyricsSongId = songId
+                        if (songId == playback.currentSongId.value) {
+                            lyricsDocument = doc; lyricsSongId = songId
+                        }
+                    } else if (online != null) {
+                        val embedded = withContext(Dispatchers.Default) { LyricsParser.parseDocument(online.lyrics) }
+                        if (songId == playback.currentSongId.value) {
+                            lyricsDocument = embedded; lyricsSongId = songId
+                        }
+                        val matcher = lyricsMatcher
+                        if (matcher != null) {
+                            matcher.observeDocuments(online, onlineMetadataResolver).collect { update ->
+                                if (songId == playback.currentSongId.value) {
+                                    lyricsDocument = update.document; lyricsSongId = songId
+                                }
+                            }
+                        } else {
+                            val doc = loadOnlineLyrics(online)
+                            if (songId == playback.currentSongId.value) {
+                                lyricsDocument = doc; lyricsSongId = songId
+                            }
+                        }
                     }
                 }
         }
