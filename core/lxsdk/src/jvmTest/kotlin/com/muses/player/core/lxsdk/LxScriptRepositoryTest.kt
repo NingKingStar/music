@@ -20,6 +20,42 @@ import kotlin.test.assertTrue
  * [LxScriptRepository] 集成测试：多脚本管理、按 platform 路由、音质回退、懒加载。
  */
 class LxScriptRepositoryTest {
+    @Test fun `每次解析使用最新设置音质而不是旧引用音质`() = kotlinx.coroutines.runBlocking {
+        val repo = repository()
+        repo.register("source", racingScript("source", "['320k','flac']"))
+        var preferred = LxQuality.FLAC
+        val resolver = LxOnlineTrackResolver(repo, preferredQualityProvider = { preferred })
+        val ref = OnlineTrackRef("kw", "{}", "online", "320k")
+        try {
+            assertEquals("flac", resolver.resolve(ref).quality)
+            preferred = LxQuality.Q_320K
+            assertEquals("320k", resolver.resolve(ref).quality)
+        } finally { repo.close(); com.muses.player.core.model.online.OnlineTrackSession.clear() }
+    }
+
+    @Test fun `跨平台搜索超时后仍能尝试较低音质`() = kotlinx.coroutines.runBlocking {
+        val repo = repository()
+        repo.register("current", racingScript("current", "['320k']").replace("kw:", "wy:"))
+        val resolver = LxOnlineTrackResolver(repo, candidateProvider = { _, _ ->
+            kotlinx.coroutines.awaitCancellation()
+        }, candidateSearchTimeoutMs = 100)
+        try {
+            val result = resolver.resolve(OnlineTrackRef("wy", "{}", "online", "flac"))
+            assertEquals("320k", result.quality)
+        } finally { repo.close(); com.muses.player.core.model.online.OnlineTrackSession.clear() }
+    }
+
+    @Test fun `播放跨平台同档成功前不降档`() = kotlinx.coroutines.runBlocking {
+        val repo = repository()
+        repo.register("current", racingScript("current", "['320k']", 0).replace("kw:", "wy:"))
+        repo.register("alternative", racingScript("alternative", "['flac']"))
+        val resolver = LxOnlineTrackResolver(repo, candidateProvider = { ref, _ -> listOf(ref.copy(platform = "kw")) })
+        try {
+            val result = resolver.resolve(OnlineTrackRef("wy", "{}", "online", "flac", qualityExplicit = true))
+            assertEquals("flac", result.quality)
+            assertTrue(result.url.contains("/alternative/"))
+        } finally { repo.close(); com.muses.player.core.model.online.OnlineTrackSession.clear() }
+    }
     @Test fun `试听地址被拒绝后携带原曲时长继续跨平台解析`() = kotlinx.coroutines.runBlocking {
         val repo = repository()
         repo.register("both", scriptFor("wy", "kw"))

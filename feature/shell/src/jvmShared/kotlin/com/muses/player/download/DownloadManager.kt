@@ -503,7 +503,8 @@ class DownloadManager(
             change(task.id) { it.copy(status = DownloadStatus.PREPARING,
                 transferredBytes = 0, transferTotalBytes = null, warnings = if (task.localAudioPath != null) task.warnings else emptyList(), error = null, failureStage = null, skippedExisting = false, transferMessage = null,
                 actualQualityLabel = if (task.localAudioPath != null) task.actualQualityLabel else null,
-                qualityWarning = if (task.localAudioPath != null) task.qualityWarning else null) }
+                qualityWarning = if (task.localAudioPath != null) task.qualityWarning else null,
+                sourceName = if (task.localAudioPath != null) task.sourceName else null) }
             if (task.localAudioPath == null && !confirmLibraryDuplicate(task.track.toSong(), task.quality)) {
                 change(task.id) { it.copy(status = DownloadStatus.PAUSED, error = "已取消下载：曲库中已存在这首歌") }
                 return
@@ -704,7 +705,8 @@ class DownloadManager(
                             change(taskId) { it.copy(downloadedBytes = 0, totalBytes = null, resumeValidator = null) }
                         }
                         attemptedDownload = true
-                        change(taskId) { it.copy(requestedQuality = url.quality?.key, status = DownloadStatus.DOWNLOADING) }
+                        change(taskId) { it.copy(requestedQuality = url.quality?.key, sourceName = url.sourceName,
+                            status = DownloadStatus.DOWNLOADING) }
                         fetchAudio(taskId, url, scratch)
                         fetched += url.url
                         // 脚本声称无损但实际返回有损时，继续寻找其他平台的同档资源。
@@ -727,6 +729,7 @@ class DownloadManager(
                         if (fallbackQuality != null && actual != null && fallbackQuality.higherThan(actual)) {
                             val chosen = restoreFallback()
                             change(taskId) { it.copy(requestedQuality = fallbackUrl?.quality?.key,
+                                sourceName = fallbackUrl?.sourceName,
                                 downloadedBytes = scratch.length(), totalBytes = scratch.length(), resumeValidator = null) }
                             return chosen
                         }
@@ -754,6 +757,7 @@ class DownloadManager(
             if (fallbackRef != null) {
                 val chosen = restoreFallback()
                 change(taskId) { it.copy(requestedQuality = fallbackUrl?.quality?.key,
+                    sourceName = fallbackUrl?.sourceName,
                     downloadedBytes = scratch.length(), totalBytes = scratch.length(), resumeValidator = null) }
                 return chosen
             }
@@ -789,7 +793,8 @@ class DownloadManager(
                 candidate = LxQuality.ordered().lastOrNull { it.rank < asking.rank }
                 continue
             }
-            change(taskId) { it.copy(requestedQuality = url.quality?.key, status = DownloadStatus.DOWNLOADING) }
+            change(taskId) { it.copy(requestedQuality = url.quality?.key, sourceName = url.sourceName,
+                status = DownloadStatus.DOWNLOADING) }
             try {
                 fetchAudio(taskId, url, scratch)
                 return url

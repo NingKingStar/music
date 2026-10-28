@@ -371,7 +371,7 @@ fun SongsPage(
                             Spacer(Modifier.width(SongListLayout.coverGap))
                         },
                         after = {
-                            com.muses.player.core.ui.components.SongPlaylistButton(song)
+                            // 三点菜单里已有「添加到歌单」，行内不再放重复的加号入口。
                             com.muses.player.core.ui.components.SongMoreButton(
                                 onClick = { actionSong = song },
                             )

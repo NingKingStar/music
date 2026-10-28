@@ -27,6 +27,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -164,6 +165,21 @@ class PlayerViewModel constructor(
             if (songId == null) flowOf(null)
             else songDao.observeById(songId)
         }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** 当前曲播放来源摘要（本地下载 / 实际音源与脚本声明档位），仅作展示。 */
+    val playbackSummary: StateFlow<String?> = combine(
+        playback.currentSongId,
+        com.muses.player.core.model.online.OnlineTrackSession.snapshot,
+        com.muses.player.core.model.online.OnlineTrackSession.details,
+    ) { songId, songs, details ->
+        val path = songs[songId]?.path ?: return@combine null
+        val ref = com.muses.player.core.model.online.OnlineTrackRef.parse(path) ?: return@combine null
+        // 优先按队列里的原始引用查，兼容编码前后参数顺序不完全一致的旧队列条目。
+        (details[path] ?: details[ref.encode()])
+            ?.let { com.muses.player.core.model.online.playbackDetailSummary(it) }
+    }
+        .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // 位置轮询（约 500ms 一次）
@@ -344,6 +360,8 @@ class PlayerViewModel constructor(
     }
 
     private suspend fun refreshCurrentTrack(track: CurrentTrack?) {
+        val trackId = track?.toMeta()?.songId
+        if (trackId != playback.currentSongId.value) return
         // 标题/艺术家先发布：不等封面·歌词的网络拉取，否则在线曲目会先白一下标题
         _nowPlayingMeta.value = track?.toMeta()
         val meta = _nowPlayingMeta.value
@@ -353,8 +371,6 @@ class PlayerViewModel constructor(
 
         // 兜底封面：扫描未读到内嵌封面时，回退到播放器实时 metadata artwork
         // （对齐 app/NowPlayingUiState mediaMetadata 兜底链路，沉浸页封面缺失修复）
-        val trackId = track?.toMeta()?.songId
-        if (trackId != playback.currentSongId.value) return
         val metadataArtwork = playback.currentMeta.value?.takeIf { it.songId == trackId }?.coverUri?.takeIf { it.isNotBlank() }
         try {
             when (track) {
@@ -371,7 +387,7 @@ class PlayerViewModel constructor(
         } catch (_: Exception) {
             // 单曲元数据失败（脚本歌词形态奇怪、解析器异常等）**不得中断整条观察链**：
             // 否则一次异常会让之后切歌永久不再更新封面/歌词（只清歌词，封面保留粘性值）。
-            applyLyricsDocument(null)
+            if (trackId == playback.currentSongId.value) applyLyricsDocument(null)
         }
     }
 
@@ -401,7 +417,7 @@ class PlayerViewModel constructor(
         val document = withContext(Dispatchers.Default) {
             LyricsParser.parseDocument(song.lyrics)
         }
-        applyLyricsDocument(document)
+        if (song.id == playback.currentSongId.value) applyLyricsDocument(document)
     }
 
     /**
@@ -422,17 +438,26 @@ class PlayerViewModel constructor(
      *    故只在「当前无歌词」或「脚本带真实逐字时间轴而当前没有」时采用脚本结果。
      * ③ 封面六源匹配放最后（链慢，不拖住歌词上屏）。
      */
-    private suspend fun refreshOnlineTrack(song: Song, metadataArtwork: String?) {
+    private suspend fun refreshOnlineTrack(song: Song, metadataArtwork: String?) = coroutineScope {
         _dbDuration.value = song.durationMs
         val ref = OnlineTrackRef.parse(song.path)
 
         // ① 立即取一次脚本元数据 + 上屏（歌词：脚本逐字 > 匹配结果 > 脚本行级）
         song.coverUri?.takeIf { it.isNotBlank() }?.let { publishOnlineCover(song.id, it) }
-        var script = scriptMetadata(ref)
-        var cover = script?.cover?.takeIf { it.isNotBlank() }
-            ?: song.coverUri?.takeIf { it.isNotBlank() }
-        var document = pickLyrics(parseScriptLyrics(script?.lyrics), song)
-        applyLyricsDocument(document)
+        var cover = song.coverUri?.takeIf { it.isNotBlank() }
+        val coverJob = launch {
+            val resolved = ref?.let { onlineMetadataResolver.resolveCover(it) }?.takeIf { it.isNotBlank() }
+            if (resolved != null) {
+                cover = resolved
+                publishOnlineCover(song.id, resolved)
+            }
+        }
+        val scriptLyrics = ref?.let { onlineMetadataResolver.resolveLyrics(it) }
+        var document = parseScriptLyrics(scriptLyrics)
+        // 行级歌词先上屏，再按原有规则选取更准确的匹配结果。
+        if (document != null && song.id == playback.currentSongId.value) applyLyricsDocument(document)
+        document = pickLyrics(document, song)
+        if (song.id == playback.currentSongId.value) applyLyricsDocument(document)
         // 已知封面（脚本 pic / 搜索结果）**立即上屏**，不等重试：搜索结果的远程封面本就现成，
         // 让它跟歌词一起等 1.5s 会白闪一下默认底
         cover?.let { publishOnlineCover(song.id, it) }
@@ -449,7 +474,7 @@ class PlayerViewModel constructor(
                     // 行歌词可能先进入缓存，逐字数据稍后才到；继续等待真实逐字，不提前结束重试。
                     if (!lyricsSettled && (retryDoc.hasSyllables() || document == null)) {
                         document = retryDoc
-                        applyLyricsDocument(retryDoc)
+                        if (song.id == playback.currentSongId.value) applyLyricsDocument(retryDoc)
                     }
                     lyricsSettled = document?.hasSyllables() == true
                 }
@@ -462,6 +487,7 @@ class PlayerViewModel constructor(
         }
 
         // ③ 封面仍未拿到 → 六源匹配（慢，放最后，不拖住歌词上屏）
+        coverJob.join()
         if (cover.isNullOrBlank()) cover = matchOnlineCover(song)
         val effectiveCover = cover?.takeIf { it.isNotBlank() } ?: metadataArtwork
         if (!effectiveCover.isNullOrBlank()) publishOnlineCover(song.id, effectiveCover)

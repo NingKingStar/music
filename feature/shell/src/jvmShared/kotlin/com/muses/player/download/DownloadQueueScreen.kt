@@ -381,7 +381,8 @@ private fun DownloadTaskRow(
                         " · 请求：${qualityLabel(requested)}（已降档，实际音质待核实）"
                     task.status == DownloadStatus.COMPLETED -> " · 实际音质未核实"
                     else -> ""
-                }, style = MiuixTheme.textStyles.footnote1, color = scheme.onSurfaceVariantSummary,
+                } + (task.sourceName?.let { " · 音源：$it" } ?: ""),
+                    style = MiuixTheme.textStyles.footnote1, color = scheme.onSurfaceVariantSummary,
                     marqueeEnabled = false)
                 val target = task.target ?: defaultTarget
                 val available = downloadTargetAvailable(target, sources)

@@ -32,6 +32,14 @@ data class OnlineTrackRef(
     val sourceId: String,
     /** 上次成功解析的音质（可空） */
     val quality: String? = null,
+    /**
+     * 本次播放/下载是否显式指定了 [quality]。
+     *
+     * 队列、歌单和下载记录里保存的 `quality` 多数只是「上次用过的档位」快照，
+     * 新播放应跟随当前设置；只有用户在某次操作里明确选了档位才置 true，
+     * 避免设置一刀切覆盖显式选择，也避免旧快照锁死音质。
+     */
+    val qualityExplicit: Boolean = false,
 ) {
 
     /** 编码为 `Song.path` 可存的 URI 字符串 */
@@ -40,6 +48,7 @@ data class OnlineTrackRef(
         val query = buildString {
             append("?src=").append(encodeComponent(sourceId))
             if (!quality.isNullOrBlank()) append("&q=").append(encodeComponent(quality))
+            if (qualityExplicit) append("&qx=1")
         }
         return "$SCHEME://$platform/$encoded$query"
     }
@@ -79,6 +88,7 @@ data class OnlineTrackRef(
                 musicInfoJson = musicInfoJson,
                 sourceId = param("src") ?: "",
                 quality = param("q"),
+                qualityExplicit = param("qx") == "1",
             )
         }
     }
@@ -90,6 +100,12 @@ data class OnlinePlayableUrl(
     val url: String,
     /** 实际生效音质（供展示） */
     val quality: String? = null,
+    val sourceName: String? = null,
+    val requestedQuality: String? = null,
+    /** 实际命中的曲目引用（跨平台回退时与入队引用不同，供封面/歌词跟随）。 */
+    val resolvedRef: OnlineTrackRef? = null,
+    /** 解析阶段耗时（毫秒），仅用于诊断；不包含完整地址或密钥。 */
+    val timings: Map<String, Long> = emptyMap(),
 )
 
 /**
@@ -111,6 +127,18 @@ interface OnlineTrackResolver {
      * @throws OnlineResolveException 解析失败（脚本未加载、源不支持、脚本报错、超时等）
      */
     suspend fun resolve(ref: OnlineTrackRef): OnlinePlayableUrl
+
+    /**
+     * 地址已被证实失效（403/404 或读取失败）。实现方应丢弃对应的短期复用，
+     * 避免下一次请求继续拿到同一个坏地址。
+     */
+    fun invalidatePlayableUrl(url: String) {}
+
+    /**
+     * 地址已被证实无法播放（例如播放器无法解封装）。与 [invalidatePlayableUrl] 不同，
+     * 实现方应在一个有界时间内拒绝再次使用该地址，促使下一次解析尝试其他脚本/档位。
+     */
+    fun rejectPlayableUrl(url: String) {}
 }
 
 /** 在线解析失败（与播放器既有失败恢复链对接） */

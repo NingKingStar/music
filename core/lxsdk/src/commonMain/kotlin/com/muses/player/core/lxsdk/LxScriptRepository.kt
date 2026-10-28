@@ -92,6 +92,7 @@ class LxScriptRepository(
      * @return (scriptId, 脚本源码) 列表；仅返回已启用的脚本
      */
     private val storedScriptsProvider: (suspend () -> List<Pair<String, String>>)? = null,
+    private val preferredScriptIdsProvider: suspend () -> Set<String> = { emptySet() },
 ) {
 
     private val mutex = Mutex()
@@ -101,6 +102,18 @@ class LxScriptRepository(
     private var synced = false
 
     private val scripts = mutableListOf<LoadedLxScript>()
+
+    /**
+     * 脚本集合版本号：注册/注销/刷新/清空时递增。
+     * 短期直链复用把它纳入键，脚本一换就不会继续用旧解析结果。
+     */
+    private val generationState = kotlinx.coroutines.flow.MutableStateFlow(0L)
+
+    val generation: Long get() = generationState.value
+
+    private fun bumpGeneration() {
+        generationState.value += 1L
+    }
 
     /**
      * 首次调用时把存储中的脚本登记进仓库（幂等）。
@@ -132,6 +145,7 @@ class LxScriptRepository(
                 if (scripts.none { it.scriptId == id }) scripts += LoadedLxScript(id, source)
             }
         }
+        bumpGeneration()
         synced = true
     }
 
@@ -193,18 +207,64 @@ class LxScriptRepository(
         scripts.filter { it.scriptId == scriptId }.forEach { it.close() }
         scripts.removeAll { it.scriptId == scriptId }
         scripts.add(LoadedLxScript(scriptId = scriptId, source = source))
+        bumpGeneration()
     }
 
     /** 注销脚本并释放其引擎 */
     suspend fun unregister(scriptId: String) = mutex.withLock {
         scripts.filter { it.scriptId == scriptId }.forEach { it.close() }
         scripts.removeAll { it.scriptId == scriptId }
+        bumpGeneration()
         Unit
     }
 
     suspend fun clear() = mutex.withLock {
         scripts.forEach { it.close() }
         scripts.clear()
+        bumpGeneration()
+    }
+
+    /** 偏好指纹：首选选择 + 脚本集合版本，供短期直链复用做键。 */
+    suspend fun preferenceFingerprint(): String {
+        val ids = preferredScriptIdsProvider().sorted().joinToString(",")
+        return "${generationState.value}:$ids"
+    }
+
+    /**
+     * 空闲时预热当前首选脚本（不加载其它内置源）。
+     *
+     * 冷启动后第一首歌曲必须等 QuickJS 创建并执行脚本，才有音源请求可发；
+     * 这里只提前做这一步，不解析地址、不发网络请求，也不改变既有回退策略。
+     */
+    suspend fun warmPreferred(timeoutMs: Long = 6_000L): Boolean {
+        ensureSynced()
+        val ids = preferredScriptIdsProvider()
+        if (ids.isEmpty()) return false
+        val targets = mutex.withLock { scripts.filter { it.scriptId in ids && it.engine == null } }
+        if (targets.isEmpty()) return true
+        return withTimeoutOrNull(timeoutMs) {
+            coroutineScope {
+                targets.map { async { it.ensureLoaded(crypto, httpClient, requestTimeoutMs) } }.awaitAll()
+            }
+        } != null
+    }
+
+    /**
+     * 已加载脚本对某平台声明的档位；未加载或无声明时返回 null（表示未知，不能据此跳过）。
+     * 用于回退时跳过脚本明确不支持的档位，把预算留给能用的档位。
+     */
+    suspend fun loadedDeclaredQualities(platform: String): Set<LxQuality>? {
+        ensureSynced()
+        val snapshot = mutex.withLock { scripts.toList() }
+        if (snapshot.isEmpty()) return null
+        // 只要还有活跃脚本未加载，就无法断言「平台支持哪些档位」：
+        // 部分加载的低档源会把尚未加载的高档源当成不存在，导致错误跳档。
+        if (snapshot.any { it.engine == null }) return null
+        val declarations = snapshot.mapNotNull { it.engine?.sources?.get(platform) }
+            .filter { it.supports(LxAction.MUSIC_URL) }
+        if (declarations.isEmpty()) return null
+        val qualities = declarations.flatMap { it.qualitys }.mapNotNull(LxQuality::fromKey).toSet()
+        return qualities.ifEmpty { null }
     }
 
     /**
@@ -230,6 +290,41 @@ class LxScriptRepository(
     ): LxMusicUrl {
         ensureSynced()
         val candidates = mutex.withLock { scripts.toList() }
+        val preferredIds = preferredScriptIdsProvider()
+        val (preferred, others) = candidates.partition { it.scriptId in preferredIds }
+        if (preferred.isEmpty()) {
+            return resolveFromCandidates(candidates, platform, musicInfoJson, quality, acceptUrl, exactQuality)
+        }
+        val requested = quality ?: LxQuality.DEFAULT
+        val qualities = if (exactQuality) listOf(requested) else LxQuality.ordered()
+            .filter { it.rank <= requested.rank }.sortedByDescending { it.rank }
+        val failures = mutableListOf<String>()
+        // 保持音质优先级：同档位先试首选脚本，再试后备；都失败后才降档。
+        for (effective in qualities) {
+            for ((index, group) in listOf(preferred, others).withIndex()) {
+                if (group.isEmpty()) continue
+                try {
+                    val result = if (index == 0) {
+                        withTimeoutOrNull(minOf(requestTimeoutMs, 6_000L)) {
+                            resolveFromCandidates(group, platform, musicInfoJson, effective, acceptUrl, true)
+                        }
+                    } else resolveFromCandidates(group, platform, musicInfoJson, effective, acceptUrl, true)
+                    if (result != null) return result
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) { failures += e.message.orEmpty() }
+            }
+        }
+        throw LxResolveException("首选及后备音源均无法解析播放地址。" + failures.joinToString("；"))
+    }
+
+    private suspend fun resolveFromCandidates(
+        candidates: List<LoadedLxScript>,
+        platform: String,
+        musicInfoJson: String,
+        quality: LxQuality?,
+        acceptUrl: suspend (String) -> Boolean,
+        exactQuality: Boolean,
+    ): LxMusicUrl {
         if (candidates.isEmpty()) {
             throw LxResolveException("未导入任何音源脚本。")
         }
@@ -260,7 +355,7 @@ class LxScriptRepository(
             // local 源不声明音质，保留原有无档位解析能力。
             if (platform == "local" && declared.qualitys.isEmpty()) {
                 val result = engine.getMusicUrl(platform, null, musicInfoJson)
-                if (acceptUrl(result.url)) return result
+                if (acceptUrl(result.url)) return result.copy(sourceName = script.meta.name ?: script.scriptId)
             }
         }
 
@@ -275,7 +370,7 @@ class LxScriptRepository(
                             result = withTimeoutOrNull(requestTimeoutMs) {
                                 engine.getMusicUrl(platform, effectiveQuality, musicInfoJson)
                                     .takeIf { acceptUrl(it.url) }
-                                    ?.copy(quality = effectiveQuality)
+                                    ?.copy(quality = effectiveQuality, sourceName = name)
                             }
                         } catch (e: CancellationException) { throw e }
                         catch (e: Exception) {
@@ -343,14 +438,18 @@ class LxScriptRepository(
         call: suspend (LxScriptEngine) -> T,
     ): T {
         ensureSynced()
-        val candidates = mutex.withLock { scripts.toList() }
+        val preferredIds = preferredScriptIdsProvider()
+        val candidates = mutex.withLock { scripts.sortedBy { if (it.scriptId in preferredIds) 0 else 1 } }
         if (candidates.isEmpty()) {
             throw LxResolveException("未导入任何音源脚本。")
         }
 
         val failures = mutableListOf<String>()
         for (script in candidates) {
-            val loaded = script.ensureLoaded(crypto, httpClient, requestTimeoutMs)
+            val isPreferred = script.scriptId in preferredIds
+            val loaded = if (isPreferred) withTimeoutOrNull(minOf(requestTimeoutMs, 6_000L)) {
+                script.ensureLoaded(crypto, httpClient, requestTimeoutMs)
+            } == true else script.ensureLoaded(crypto, httpClient, requestTimeoutMs)
             if (!loaded) {
                 failures += "${script.meta.name ?: script.scriptId}: ${script.loadError}"
                 continue
@@ -359,7 +458,10 @@ class LxScriptRepository(
             val declared = engine.sources?.get(platform) ?: continue
             if (!declared.supports(action)) continue
             try {
-                return call(engine)
+                val result = if (isPreferred) withTimeoutOrNull(minOf(requestTimeoutMs, 6_000L)) { call(engine) }
+                    else call(engine)
+                if (result != null) return result
+            } catch (e: CancellationException) { throw e
             } catch (e: Exception) {
                 failures += "${script.meta.name ?: script.scriptId}: ${e.message}"
             }

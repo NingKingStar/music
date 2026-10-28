@@ -43,7 +43,7 @@ class CrossPlatformTrackMatcher(private val search: OnlineSearchService) : Onlin
                 (duration == null || candidate.durationMs == null || abs(candidate.durationMs / 1000 - duration) <= 10)
         }.sortedByDescending { normalize(it.album.orEmpty()) == album && album.isNotEmpty() }
             .groupBy { it.platform }.values.flatMap { it.take(2) }
-            .map { it.toTrackRef(ref.sourceId, ref.quality) }
+            .map { it.toTrackRef(ref.sourceId, ref.quality).copy(qualityExplicit = ref.qualityExplicit) }
     }
 
     private fun artists(value: String): Set<String> = value.split(Regex("[/、,，&;；]+"))

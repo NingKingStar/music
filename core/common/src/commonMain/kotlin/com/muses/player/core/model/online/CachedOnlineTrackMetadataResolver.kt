@@ -24,6 +24,7 @@ import kotlinx.coroutines.sync.withLock
 class CachedOnlineTrackMetadataResolver(
     private val delegate: OnlineTrackMetadataResolver,
     private val maxEntries: Int = DEFAULT_MAX_ENTRIES,
+    private val namespaceProvider: suspend () -> String = { "" },
 ) : OnlineTrackMetadataResolver {
 
     private val mutex = Mutex()
@@ -34,7 +35,7 @@ class CachedOnlineTrackMetadataResolver(
 
     override suspend fun resolveCover(ref: OnlineTrackRef): String? {
         val actual = OnlineTrackSession.resolvedReference(ref)
-        val key = keyOf(actual)
+        val key = namespaceProvider() + "\u0000" + keyOf(actual)
         mutex.withLock { touch(coverCache, key) }?.let { return it }
 
         val value = delegate.resolveCover(actual)?.takeIf { it.isNotBlank() } ?: return null
@@ -44,7 +45,7 @@ class CachedOnlineTrackMetadataResolver(
 
     override suspend fun resolveLyrics(ref: OnlineTrackRef): OnlineTrackLyrics? {
         val actual = OnlineTrackSession.resolvedReference(ref)
-        val key = keyOf(actual)
+        val key = namespaceProvider() + "\u0000" + keyOf(actual)
         mutex.withLock { touch(lyricsCache, key) }?.let { return it }
 
         val value = delegate.resolveLyrics(actual)?.takeIf { !it.isEmpty } ?: return null

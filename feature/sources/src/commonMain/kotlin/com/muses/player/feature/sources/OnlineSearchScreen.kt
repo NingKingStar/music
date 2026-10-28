@@ -444,7 +444,7 @@ private fun LibraryResultRow(title: String, subtitle: String, detail: String,
                 }
                 lyric?.let { LyricSnippet(it) }
             }
-            if (song != null) com.muses.player.core.ui.components.OnlineSongDownloadAction(song, showPlaylistButton = false)
+            if (song != null) com.muses.player.core.ui.components.OnlineSongDownloadAction(song)
             else Text(detail, fontSize = 12.sp, color = scheme.onSurfaceVariantSummary)
         }
     }
@@ -572,7 +572,7 @@ private fun SearchResultRow(
                 lyric?.let { LyricSnippet(it) }
             }
             Spacer(Modifier.width(SongListLayout.actionGap))
-            com.muses.player.core.ui.components.OnlineSongDownloadAction(result.toSong("online"), showPlaylistButton = false)
+            com.muses.player.core.ui.components.OnlineSongDownloadAction(result.toSong("online"))
         }
     }
     }

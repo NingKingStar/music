@@ -122,6 +122,7 @@ fun SettingsScreen(
                 // ---- 内置音源 ----
                 SettingsBlockTitle("音源")
                 Card(modifier = Modifier.padding(horizontal = 12.dp)) {
+                    PreferredLxSourcePreference()
                     SwitchPreference(
                         title = "使用内置 LX 音源",
                         summary = if (builtinLxEnabled) builtinUpdateStatus else "关闭后仅使用自行导入的 LX 音源",

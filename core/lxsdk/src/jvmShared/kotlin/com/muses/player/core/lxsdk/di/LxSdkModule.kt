@@ -48,6 +48,11 @@ fun lxSdkModule() = module {
         LxScriptRepository(
             crypto = get(),
             httpClient = get(),
+            preferredScriptIdsProvider = {
+                val builtinEnabled = settings.builtinLxSourcesEnabled.first()
+                val active = store.list().filter { it.enabled && (builtinEnabled || !it.isBuiltin) }
+                com.muses.player.core.lxsdk.LxSourcePreference.preferredIds(settings.preferredLxSource.first(), active)
+            },
             storedScriptsProvider = {
                 // 只登记已启用脚本；引擎仍按需加载（首次请求某平台时才建 QuickJS runtime）
                 val builtinEnabled = settings.builtinLxSourcesEnabled.first()
@@ -56,7 +61,14 @@ fun lxSdkModule() = module {
         )
     }
     single { BuiltinLxSourceUpdater(get(), get(), get(), get()) }
-    single<OnlineTrackResolver> { LxOnlineTrackResolver(get(), candidateProvider = getOrNull(), urlProbe = getOrNull()) }
+    single<OnlineTrackResolver> {
+        val settings: SettingsRepository = get()
+        val repository: LxScriptRepository = get()
+        LxOnlineTrackResolver(get(), candidateProvider = getOrNull(), urlProbe = getOrNull(),
+            preferredQualityProvider = { com.muses.player.core.lxsdk.LxQuality.fromKey(settings.onlinePreferredQuality.first()) },
+            // 首选选择或脚本集合一变化，短期复用自然失效。
+            cacheKeySaltProvider = { repository.preferenceFingerprint() })
+    }
 
     /**
      * 播放页封面/歌词端口（脚本 `pic` / `lyric` 动作）。
@@ -66,6 +78,8 @@ fun lxSdkModule() = module {
      * 同一首歌只应真正拉一次脚本（Koin 单例共享同一份缓存）。
      */
     single<OnlineTrackMetadataResolver> {
-        CachedOnlineTrackMetadataResolver(LxOnlineMetadataResolver(get()))
+        val settings: SettingsRepository = get()
+        CachedOnlineTrackMetadataResolver(LxOnlineMetadataResolver(get()),
+            namespaceProvider = { settings.preferredLxSource.first() })
     }
 }

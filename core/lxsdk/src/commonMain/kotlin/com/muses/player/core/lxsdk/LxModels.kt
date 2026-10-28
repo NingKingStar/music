@@ -138,6 +138,7 @@ data class LxScriptDescriptor(
 data class LxMusicUrl(
     val url: String,
     val quality: LxQuality? = null,
+    val sourceName: String? = null,
 )
 
 /** 歌词解析结果（洛雪四类歌词字段，均可为 null） */

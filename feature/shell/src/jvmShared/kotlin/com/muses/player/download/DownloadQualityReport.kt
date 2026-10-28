@@ -23,7 +23,10 @@ internal fun downloadQualityReport(
         LxQuality.FLAC_24BIT, LxQuality.HIRES -> !actual.lossless || actual.bitDepth < 24
         LxQuality.Q_128K, LxQuality.Q_192K, LxQuality.Q_320K ->
             !actual.lossless && actual.bitrate < selected.key.removeSuffix("k").toLong() * 0.9
-        // 母带及全景声不能仅凭编码、位深证明，不能把请求值标为实际音质。
+        // 母带：文件头不能证明来源，但明显降级的有损/超低采样率不能当达标；
+        // 不要求 192kHz（母带也可以是 44.1/48kHz），只排除明显不符合的情况。
+        LxQuality.MASTER -> !actual.lossless || actual.sampleRate < 44_100
+        // 全景声的交付格式常为有损，不能仅凭 lossless 判断，保持不臆断。
         else -> false
     }
     return DownloadQualityReport(label, if (mismatch)

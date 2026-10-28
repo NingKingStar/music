@@ -7,6 +7,21 @@ import kotlin.test.assertNull
 
 /** [CachedOnlineTrackMetadataResolver] 测试：命中/不缓存失败/有界 LRU 三条语义 */
 class CachedOnlineTrackMetadataResolverTest {
+    @kotlin.test.Test
+    fun preferenceChangeDoesNotReusePreviousSourceMetadata() = kotlinx.coroutines.runBlocking {
+        var preference = "first"
+        val resolver = object : OnlineTrackMetadataResolver {
+            override suspend fun resolveCover(ref: OnlineTrackRef) = "https://test.invalid/$preference.jpg"
+            override suspend fun resolveLyrics(ref: OnlineTrackRef) = OnlineTrackLyrics(lyric = preference)
+        }
+        val cached = CachedOnlineTrackMetadataResolver(resolver, namespaceProvider = { preference })
+        val ref = OnlineTrackRef("kw", "{}", "online")
+        kotlin.test.assertEquals("first", cached.resolveLyrics(ref)?.lyric)
+        kotlin.test.assertEquals("https://test.invalid/first.jpg", cached.resolveCover(ref))
+        preference = "second"
+        kotlin.test.assertEquals("second", cached.resolveLyrics(ref)?.lyric)
+        kotlin.test.assertEquals("https://test.invalid/second.jpg", cached.resolveCover(ref))
+    }
 
     @Test fun `跨平台回退后不用原平台已缓存的歌词`() = runTest {
         OnlineTrackSession.clear()

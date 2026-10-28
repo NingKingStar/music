@@ -49,6 +49,8 @@ data class DownloadTask(
     val transferredBytes: Long = 0,
     val transferTotalBytes: Long? = null,
     val requestedQuality: String? = null,
+    /** 实际接受播放地址的音源显示名；旧任务缺省为空。 */
+    val sourceName: String? = null,
     /** 从下载文件音频头核验的结果，不使用脚本请求档位代替。 */
     val actualQualityLabel: String? = null,
     val qualityWarning: String? = null,

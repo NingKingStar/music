@@ -39,23 +39,28 @@ class SearchHttp(
 
     suspend fun canOpenAudio(url: String, expectedDurationMs: Long? = null): Boolean {
         val inspectDuration = expectedDurationMs != null && expectedDurationMs >= 90_000
+        // 无论是否需要时长，都取一段有界前缀：1 字节无法判断封装，坏高档位会被当成成功，
+        // 直到播放器解封装失败（code 3003）才跳歌。16 KiB 足够覆盖常见容器头与大 ID3 标签标记。
+        val rangeEnd = if (inspectDuration) 65_535 else 16_383
         return client.prepareGet(url) {
-            header(HttpHeaders.Range, if (inspectDuration) "bytes=0-65535" else "bytes=0-0")
+            header(HttpHeaders.Range, "bytes=0-$rangeEnd")
             header(HttpHeaders.UserAgent, OnlinePlaybackHttp.USER_AGENT)
         }.execute { response ->
             val channel = response.bodyAsChannel()
             try {
                 if (!response.status.isSuccess() || response.contentType()?.contentType == "text" ||
                     response.contentType()?.contentSubtype == "json") return@execute false
-                if (!inspectDuration) return@execute true
-                // 即使服务器忽略 Range，也只读取最多 64 KiB，随后取消响应。
-                val prefix = ByteArray(65_536)
+                // 即使服务器忽略 Range，也只读取最多 rangeEnd+1 字节，随后取消响应。
+                val prefix = ByteArray(rangeEnd + 1)
                 var count = 0
                 while (count < prefix.size) {
                     val read = channel.readAvailable(prefix, count, prefix.size - count)
                     if (read < 0) break
                     count += read
                 }
+                // 先证明是播放器能识别的音频容器，再谈时长；未知时长/短歌仍然放行。
+                if (!hasRecognizableAudioHeader(prefix, count)) return@execute false
+                if (!inspectDuration) return@execute true
                 val actual = audioHeaderDurationMs(prefix.copyOf(count))
                 !isTruncatedAudio(actual, expectedDurationMs)
             } finally {

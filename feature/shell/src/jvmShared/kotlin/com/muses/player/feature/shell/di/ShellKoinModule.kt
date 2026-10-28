@@ -30,6 +30,7 @@ val shellModule = module {
             get(),
             getOrNull<OnlineTrackMetadataResolver>() ?: NoOpOnlineTrackMetadataResolver,
             getOrNull<LyricsMatcher>(),
+            getOrNull(),
         )
     }
     viewModel { SettingsViewModel(get()) }

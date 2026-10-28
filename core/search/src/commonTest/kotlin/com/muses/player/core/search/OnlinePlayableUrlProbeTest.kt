@@ -16,6 +16,15 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class OnlinePlayableUrlProbeTest {
+    @Test fun `截短的未知响应和合法原始音频同步头均安全判断`() {
+        for (size in 0..3) {
+            assertFalse(com.muses.player.core.search.http.hasRecognizableAudioHeader(ByteArray(size) { 0x56 }))
+        }
+        assertFalse(com.muses.player.core.search.http.hasRecognizableAudioHeader(byteArrayOf(0x1a, 0x45)))
+        assertFalse(com.muses.player.core.search.http.hasRecognizableAudioHeader(byteArrayOf(0x1a, 0x45, 0xdf.toByte())))
+        assertTrue(com.muses.player.core.search.http.hasRecognizableAudioHeader(byteArrayOf(0x0b, 0x77)))
+        assertTrue(com.muses.player.core.search.http.hasRecognizableAudioHeader(byteArrayOf(0xac.toByte(), 0x40)))
+    }
     private fun flac(seconds: Int): ByteArray = ByteArray(42).also { bytes ->
         "fLaC".forEachIndexed { i, c -> bytes[i] = c.code.toByte() }
         bytes[4] = 0x80.toByte()
@@ -63,22 +72,63 @@ class OnlinePlayableUrlProbeTest {
         assertEquals(null, audioHeaderDurationMs(ByteArray(128)))
     }
 
-    @Test fun `小范围请求识别音频并拒绝403与错误网页`() = runTest {
+    @Test fun `小范围请求识别音频并拒绝403错误网页与不可识别容器`() = runTest {
+        val mp3 = ByteArray(64).also { it[0] = 0xff.toByte(); it[1] = 0xfb.toByte(); it[2] = 0x90.toByte() }
+        // 大 ID3 标签：只看到标签标记就必须放行，不能因头部读不完误拒。
+        val largeId3 = ByteArray(64).also { bytes ->
+            "ID3".forEachIndexed { i, c -> bytes[i] = c.code.toByte() }
+            bytes[6] = 0x7f; bytes[7] = 0x7f; bytes[8] = 0x7f; bytes[9] = 0x7f
+        }
+        // 实测 kw 高档位返回的无普通音频头数据（不证明其性质，只证明当前播放器无法识别）。
+        val unknownHeader = byteArrayOf(
+            0x56, 0x09, 0x2b, 0x75, 0x30, 0x59, 0x4c, 0x40,
+            0x23, 0x46, 0x5d, 0x34, 0x47, 0x74, 0x83.toByte(), 0x69, 0x7c,
+        )
         val client = HttpClient(MockEngine { request ->
-            assertEquals("bytes=0-0", request.headers[HttpHeaders.Range])
+            assertEquals("bytes=0-16383", request.headers[HttpHeaders.Range])
             assertEquals(com.muses.player.core.model.online.OnlinePlaybackHttp.USER_AGENT,
                 request.headers[HttpHeaders.UserAgent])
             when (request.url.encodedPath) {
-                "/audio" -> respond("a", HttpStatusCode.PartialContent, headersOf(HttpHeaders.ContentType, "audio/mpeg"))
+                "/mp3" -> respond(mp3, HttpStatusCode.PartialContent, headersOf(HttpHeaders.ContentType, "audio/mpeg"))
+                // 正常音频也可能返回 application/octet-stream，不能仅凭 Content-Type 拒绝。
+                "/id3" -> respond(largeId3, HttpStatusCode.PartialContent,
+                    headersOf(HttpHeaders.ContentType, "application/octet-stream"))
+                "/unknown" -> respond(unknownHeader, HttpStatusCode.PartialContent,
+                    headersOf(HttpHeaders.ContentType, "application/octet-stream"))
+                "/short-flac" -> respond(flac(30), HttpStatusCode.PartialContent,
+                    headersOf(HttpHeaders.ContentType, "application/octet-stream"))
+                "/ogg" -> respond("OggS".toByteArray() + ByteArray(60), HttpStatusCode.PartialContent,
+                    headersOf(HttpHeaders.ContentType, "application/octet-stream"))
+                "/wav" -> respond("RIFF".toByteArray() + ByteArray(4) + "WAVE".toByteArray() + ByteArray(52),
+                    HttpStatusCode.PartialContent, headersOf(HttpHeaders.ContentType, "audio/wav"))
                 "/forbidden" -> respond("denied", HttpStatusCode.Forbidden)
                 else -> respond("<html>error</html>", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "text/html"))
             }
         })
         val http = SearchHttp(client)
         try {
-            assertTrue(http.canOpenAudio("https://cdn.test/audio"))
+            assertTrue(http.canOpenAudio("https://cdn.test/mp3"))
+            assertTrue(http.canOpenAudio("https://cdn.test/id3"))
+            assertFalse(http.canOpenAudio("https://cdn.test/unknown"), "无容器头的地址不能当成功")
+            // 短歌（<90s）不查时长，但必须仍能识别容器。
+            assertTrue(http.canOpenAudio("https://cdn.test/short-flac", 30_000))
+            assertTrue(http.canOpenAudio("https://cdn.test/ogg"))
+            assertTrue(http.canOpenAudio("https://cdn.test/wav"))
             assertFalse(http.canOpenAudio("https://cdn.test/forbidden"))
             assertFalse(http.canOpenAudio("https://cdn.test/error"))
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test fun `无Range响应也按前缀识别容器`() = runTest {
+        val flac = flac(240)
+        val client = HttpClient(MockEngine {
+            respond(flac, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/octet-stream"))
+        })
+        val http = SearchHttp(client)
+        try {
+            assertTrue(http.canOpenAudio("https://cdn.test/full", 240_000))
         } finally {
             client.close()
         }

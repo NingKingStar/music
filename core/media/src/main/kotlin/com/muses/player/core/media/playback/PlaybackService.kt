@@ -104,6 +104,16 @@ class PlaybackService : MediaSessionService() {
     private var lastLyricReassertAt = 0L
     /** 仅真正切歌才清理歌词状态，歌词替换本身也可能触发转场事件。 */
     private var transitionSongId: String? = null
+    /** 换源恢复：同一首在冷却窗口内只重建一次，避免反复 stop/prepare。 */
+    private val resourceRecoveryGuard = PlaybackResourceRecoveryGuard()
+    /** 解封装失败后的同曲重试：同一首冷却窗口内只重试一次。 */
+    private val containerRetryGuard = PlaybackContainerRetryGuard()
+    /** 最近一次成功打开的在线地址（trackUri to url），用于解封装失败时排除坏地址。 */
+    @Volatile
+    private var lastOpenedOnline: Pair<String, String>? = null
+    /** 在线解析端口（解封装失败时通知其排除坏地址）。 */
+    @Volatile
+    private var onlineResolverRef: com.muses.player.core.model.online.OnlineTrackResolver? = null
 
     // ExoPlayer 强制主线程访问（player-accessed-on-wrong-thread 崩溃防护），
     // 服务生命周期本就在主线程；Room/DataStore 挂起调用内部自行切 IO
@@ -118,35 +128,58 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         val okHttpFactory = OkHttpDataSource.Factory(okHttpClient)
-        // 在线音源：muslx:// → HTTP 直链的换取放在**缓存内层**。
-        // 这样缓存键是稳定的 muslx:// 标识（而非每次都变的签名 URL），重播可命中缓存；
-        // 解析发生在真正 open 时，点播放立即出声、切歌按需解析，天然规避直链过期。
+        // 在线引用必须先解析，缓存以实际地址区分，避免读取旧音源的片段。
         val onlineResolver = runCatching {
             org.koin.core.context.GlobalContext.get().getOrNull<com.muses.player.core.model.online.OnlineTrackResolver>()
         }.getOrNull()
-        val networkFactory: DataSource.Factory = if (onlineResolver == null) {
-            okHttpFactory
+        onlineResolverRef = onlineResolver
+        val cacheFactory = CacheDataSource.Factory()
+            .setCache(playbackCache)
+            .setUpstreamDataSourceFactory(okHttpFactory)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        val baseFactory: DataSource.Factory = DefaultDataSource.Factory(this, cacheFactory)
+        val dataSourceFactory: DataSource.Factory = if (onlineResolver == null) {
+            baseFactory
         } else {
+            // 下载记录常驻内存索引：随下载流刷新，播放时不再读 DataStore 与整份队列 JSON。
+            val downloadIndex = DownloadedTrackIndex()
+            val store = getKoin().getOrNull<com.muses.player.core.download.DownloadQueueStore>()
+            // 解码与索引刷新都在 IO 线程：不占主线程，首次播放前已经把常见下载记录建好。
+            serviceScope.launch(Dispatchers.IO) {
+                store?.downloadedSongs?.collect { downloadIndex.update(it) }
+            }
+            val downloadedLocator = DownloadedTrackLocator(downloadIndex) { location ->
+                runCatching {
+                    val uri = android.net.Uri.parse(location)
+                    if (uri.scheme == "content") contentResolver.openInputStream(uri)?.use { it.read() >= 0 } == true
+                    else java.io.File(if (uri.scheme == "file") uri.path ?: "" else location)
+                        .inputStream().use { it.read() >= 0 }
+                }.getOrDefault(false)
+            }
             OnlineResolvingDataSourceFactory(
-                upstreamFactory = okHttpFactory,
+                upstreamFactory = baseFactory,
                 resolver = onlineResolver,
+                findDownloaded = { ref -> downloadedLocator.find(ref) },
+                onOpenedUrl = { trackUri, url -> lastOpenedOnline = trackUri to url },
                 onResolveError = { uri, e ->
+                    android.util.Log.w("MusesTiming", "resolveError uri=${uri.take(48)} err=${e?.message}")
                     errorLogStore.log(
                         ErrorLogStore.Level.WARN, "Playback",
                         "在线直链解析失败（DataSource 打开期）uri=${uri.take(60)}：${e?.message}",
                         e,
                     )
                 },
+                onResolveTiming = { uri, elapsedMs, local, stages ->
+                    // 只记阶段名称与毫秒数，不写完整签名地址与密钥。
+                    val detail = stages.entries.joinToString(" ") { "${it.key}=${it.value}ms" }
+                    android.util.Log.i("MusesTiming", "resolved ${elapsedMs}ms local=$local ${uri.take(48)} $detail")
+                    errorLogStore.log(
+                        ErrorLogStore.Level.WARN, "PlaybackTiming",
+                        "解析 ${elapsedMs}ms 本地=$local ${uri.take(48)} $detail",
+                    )
+                },
             )
         }
-        // CacheDataSource 边播边缓存：首次播放仍立即出声，但 ExoPlayer 对未知时长 mp3/flac 的
-        // 探测性重复打开会命中本地缓存不再发网络请求，避免触发网关（Cloudflare）限流；
-        // 出错时回落上游不阻断播放。file:// 由 DefaultDataSource 外层分派，不经缓存。
-        val cacheFactory = CacheDataSource.Factory()
-            .setCache(playbackCache)
-            .setUpstreamDataSourceFactory(networkFactory)
-            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-        val dataSourceFactory: DataSource.Factory = DefaultDataSource.Factory(this, cacheFactory)
         // MP3 CBR 时长估算：HTTP 流播（WebDAV）默认 Mp3Extractor 不估算时长（duration=TIME_UNSET），
         // 沉浸页进度条总时长显示 --:-- 且禁用；开 CBR seek flag 后按比特率估算 duration + seek 能力
         val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
@@ -154,6 +187,19 @@ class PlaybackService : MediaSessionService() {
                 androidx.media3.extractor.mp3.Mp3Extractor.FLAG_ENABLE_CONSTANT_BITRATE_SEEKING,
             )
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory, extractorsFactory)
+            .setLoadErrorHandlingPolicy(object : androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy() {
+                override fun getRetryDelayMsFor(
+                    loadErrorInfo: androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy.LoadErrorInfo,
+                ): Long {
+                    // 解析失败/资源变化不适合"原地址重试"：交回 onPlayerError 做有界换源重建，
+                    // 否则 Media3 会拿同一个坏结果重复解析多次，表现为长时间 BUFFERING。
+                    val cause = loadErrorInfo.exception
+                    if (cause is OnlineResolveFailedException || cause is OnlineResourceChangedException) {
+                        return androidx.media3.common.C.TIME_UNSET
+                    }
+                    return super.getRetryDelayMsFor(loadErrorInfo)
+                }
+            })
 
         val renderers = object : androidx.media3.exoplayer.DefaultRenderersFactory(this) {
             override fun buildAudioSink(
@@ -162,7 +208,7 @@ class PlaybackService : MediaSessionService() {
                 enableAudioOutputPlaybackParameters: Boolean,
             ): androidx.media3.exoplayer.audio.AudioSink? =
                 super.buildAudioSink(context, enableFloatOutput, enableAudioOutputPlaybackParameters)
-                    ?.let { DiagnosticAudioSink(it, errorLogStore) }
+                    ?.let { CompatibilityAudioSink(it, errorLogStore) }
         }
         if (requiresSynchronousCodec(android.os.Build.MANUFACTURER, android.os.Build.MODEL, android.os.Build.VERSION.SDK_INT)) {
             renderers.forceDisableMediaCodecAsynchronousQueueing()
@@ -767,12 +813,54 @@ class PlaybackService : MediaSessionService() {
          */
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             val player = mediaSession?.player ?: return
+            val resourceChanged = generateSequence<Throwable>(error) { it.cause }
+                .any { it is OnlineResourceChangedException }
+            val now = android.os.SystemClock.elapsedRealtime()
+            val currentId = player.currentMediaItem?.mediaId
+            if (resourceChanged && resourceRecoveryGuard.shouldRecover(currentId, now)) {
+                val position = player.currentPosition.coerceAtLeast(0L)
+                val index = player.currentMediaItemIndex
+                val shouldPlay = player.playWhenReady
+                // stop 释放旧媒体源与解码器，重新准备后再按时间定位，避免拼接不同资源的字节。
+                player.stop()
+                player.seekTo(index, position)
+                player.prepare()
+                player.playWhenReady = shouldPlay
+                return
+            }
             val sourceType = PlaybackSourceMetadata.sourceType(player.currentMediaItem)
+            android.util.Log.w("MusesTiming", "playerError code=${error.errorCode} type=$sourceType http=${PlaybackErrorCopy.httpResponseCode(error)}")
             val httpCode = PlaybackErrorCopy.httpResponseCode(error)
             val errorCopy = PlaybackErrorCopy.copyFor(error.errorCode, sourceType, httpCode)
             val onlineRef = com.muses.player.core.model.online.OnlineTrackRef.parse(
                 player.currentMediaItem?.localConfiguration?.uri?.toString(),
             )
+
+            // 地址能打开但播放器所有 extractor 都无法解封装（实测 kw 高档位 code 3003）：
+            // 有界排除该地址并重建一次，让同档其他脚本/跨平台/更低档位接手，而不是直接跳歌。
+            val parseFailure = error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
+                error.errorCode == androidx.media3.common.PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED
+            val opened = lastOpenedOnline
+            val currentTrackUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
+            if (parseFailure && onlineRef != null && opened != null && currentTrackUri == opened.first &&
+                containerRetryGuard.shouldRetry(player.currentMediaItem?.mediaId, now)
+            ) {
+                errorLogStore.log(
+                    ErrorLogStore.Level.WARN,
+                    "Playback",
+                    "音频封装无法识别，排除当前地址后重建重试（同曲，不跳歌）",
+                    error,
+                )
+                onlineResolverRef?.rejectPlayableUrl(opened.second)
+                val position = player.currentPosition.coerceAtLeast(0L)
+                val index = player.currentMediaItemIndex
+                val shouldPlay = player.playWhenReady
+                player.stop()
+                player.seekTo(index, position)
+                player.prepare()
+                player.playWhenReady = shouldPlay
+                return
+            }
 
             // R2 埋点：播放失败留痕（含限流/恢复链分支），供设置页复制反馈
             errorLogStore.log(

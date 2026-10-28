@@ -18,6 +18,9 @@ interface SettingsRepository {
     /** 使用应用内置的免费 LX 音源，默认开启。 */
     val builtinLxSourcesEnabled: Flow<Boolean>
     suspend fun setBuiltinLxSourcesEnabled(enabled: Boolean)
+    /** 空串为自动选择，@builtin 为内置优先，其他值为用户选中的脚本 ID。 */
+    val preferredLxSource: Flow<String> get() = kotlinx.coroutines.flow.flowOf("")
+    suspend fun setPreferredLxSource(sourceId: String) {}
     /** 上次完成扫描的时间戳（epoch millis，0 = 从未扫描） */
     val lastScanTimestamp: Flow<Long>
 
@@ -127,6 +130,12 @@ class DataStoreSettingsRepository constructor(
 
     override suspend fun setBuiltinLxSourcesEnabled(enabled: Boolean) {
         dataStore.edit { it[BUILTIN_LX_SOURCES_ENABLED] = enabled }
+    }
+
+    override val preferredLxSource: Flow<String>
+        get() = dataStore.data.map { it[PREFERRED_LX_SOURCE].orEmpty() }
+    override suspend fun setPreferredLxSource(sourceId: String) {
+        dataStore.edit { it[PREFERRED_LX_SOURCE] = sourceId }
     }
 
     override val lastScanTimestamp: Flow<Long>
@@ -247,6 +256,7 @@ class DataStoreSettingsRepository constructor(
     private companion object {
         val AUDIO_FOCUS_ENABLED = booleanPreferencesKey("audio_focus_enabled")
         val BUILTIN_LX_SOURCES_ENABLED = booleanPreferencesKey("builtin_lx_sources_enabled")
+        val PREFERRED_LX_SOURCE = stringPreferencesKey("preferred_lx_source")
         val LAST_SCAN_TIMESTAMP = longPreferencesKey("last_scan_timestamp")
         val DOWNLOAD_QUALITY = stringPreferencesKey("download_quality")
         val DOWNLOAD_DEVICE_DIRECTORY = stringPreferencesKey("download_device_directory")

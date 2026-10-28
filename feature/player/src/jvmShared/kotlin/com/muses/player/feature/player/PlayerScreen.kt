@@ -191,6 +191,7 @@ fun PlayerScreen(
     val currentMeta = nowPlayingMeta?.takeIf { it.songId == favoriteSongId }
     val displayCover = if (currentMeta != null) stickyCover ?: initialCoverUri?.takeIf { initialCoverSongId == currentMeta.songId } else null
     val onlineSongs by com.muses.player.core.model.online.OnlineTrackSession.snapshot.collectAsStateWithLifecycle()
+    val playbackSummary by viewModel.playbackSummary.collectAsStateWithLifecycle()
     val favoriteSong = onlineSongs[favoriteSongId] ?: LocalFavoriteSongs.current.library.firstOrNull { it.id == favoriteSongId }
     val title = currentMeta?.title?.trim()?.takeIf { it.isNotEmpty() } ?: ""
     val artist = currentMeta?.artist ?: ""
@@ -367,6 +368,7 @@ fun PlayerScreen(
                 TabletImmersiveLayout(
                     title = title,
                     artist = artist,
+                    sourceSummary = playbackSummary.orEmpty(),
                     coverUri = displayCover,
                     lines = parsedLines,
                     lyricsDocument = lyricsDocument,
@@ -403,6 +405,7 @@ fun PlayerScreen(
                 PhoneImmersiveLayout(
                     title = title,
                     artist = artist,
+                    sourceSummary = playbackSummary.orEmpty(),
                     coverUri = displayCover,
                     lines = parsedLines,
                     lyricsDocument = lyricsDocument,
@@ -553,6 +556,7 @@ private fun contentAlphaFor(progress: Float): Float = progress.coerceIn(0f, 1f)
 private fun PhoneImmersiveLayout(
     title: String,
     artist: String,
+    sourceSummary: String = "",
     coverUri: String?,
     lines: List<AmllLyricLine>,
     lyricsDocument: LyricsDocument?,
@@ -624,6 +628,7 @@ private fun PhoneImmersiveLayout(
         FixedSongHead(
             title = title,
             artist = artist,
+            summary = sourceSummary,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 0.dp)
@@ -690,6 +695,7 @@ private fun PhoneImmersiveLayout(
 private fun TabletImmersiveLayout(
     title: String,
     artist: String,
+    sourceSummary: String = "",
     coverUri: String?,
     lines: List<AmllLyricLine>,
     lyricsDocument: LyricsDocument?,
@@ -743,6 +749,7 @@ private fun TabletImmersiveLayout(
                 FixedSongHead(
                     title = title,
                     artist = artist,
+                    summary = sourceSummary,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 4.dp, bottom = 12.dp)
@@ -823,6 +830,7 @@ private val LocalImmersiveFavoriteSong = staticCompositionLocalOf<com.muses.play
 private fun FixedSongHead(
     title: String,
     artist: String,
+    summary: String = "",
     modifier: Modifier = Modifier,
 ) {
     val contentColor = LocalPlayerContentColor.current
@@ -850,6 +858,18 @@ private fun FixedSongHead(
                     overflow = TextOverflow.Ellipsis,
                     lineHeight = 18.sp,
                     modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            // 来源与音质：只展示可核实信息，脚本声明与实测严格区分（见 playbackDetailSummary）
+            if (summary.isNotEmpty()) {
+                Text(
+                    text = summary,
+                    color = contentColor.copy(alpha = 0.45f),
+                    style = MiuixTheme.textStyles.footnote1,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 16.sp,
+                    modifier = Modifier.padding(top = 1.dp),
                 )
             }
         }

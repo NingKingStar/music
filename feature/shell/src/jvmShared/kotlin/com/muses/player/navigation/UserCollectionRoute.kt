@@ -29,7 +29,8 @@ import org.koin.compose.koinInject
 
 internal fun applyImportedPlaylistQuality(queue: List<Song>, quality: String): List<Song> = queue.map { song ->
     val ref = OnlineTrackRef.parse(song.path)
-    if (ref == null) song else song.copy(path = ref.copy(quality = quality).encode())
+    // 跟随设置时重新盖章，同时清掉显式标记：这是「按设置」而不是用户的本次指定。
+    if (ref == null) song else song.copy(path = ref.copy(quality = quality, qualityExplicit = false).encode())
 }
 
 @Composable

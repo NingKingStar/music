@@ -131,6 +131,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -167,6 +168,8 @@ class MainViewModel constructor(
     private val onlineMetadataResolver: OnlineTrackMetadataResolver = NoOpOnlineTrackMetadataResolver,
     /** Muses 在线歌词匹配（AMLL → 平台五源 → LRCLIB）：脚本 `lyric` 取不到时兜底 */
     private val lyricsMatcher: LyricsMatcher? = null,
+    /** 首选脚本预热（可选）：只加载当前首选脚本，不解析地址。 */
+    private val lxScriptRepository: com.muses.player.core.lxsdk.LxScriptRepository? = null,
 ) : ViewModel() {
 
     val isPlaying: StateFlow<Boolean> = playback.isPlaying
@@ -210,10 +213,25 @@ class MainViewModel constructor(
 
     /** 已解析歌词文档（切歌时更新） */
     private var lyricsDocument: LyricsDocument? = null
+    private var lyricsSongId: String? = null
 
     init {
         observeLyrics()
         startLyricPositionPolling()
+        warmPreferredLxSource()
+    }
+
+    /**
+     * 空闲时预热当前首选脚本：冷启动后第一首歌不必再等 QuickJS 创建与脚本执行。
+     * 只做「加载脚本」这一步，不解析地址、不发网络请求；自动选择模式没有首选，不做任何事。
+     */
+    private fun warmPreferredLxSource() {
+        val repository = lxScriptRepository ?: return
+        viewModelScope.launch {
+            delay(3_000)
+            if (playback.isPlaying.value) return@launch
+            runCatching { repository.warmPreferred() }
+        }
     }
 
     /** 订阅当前曲歌词变化：切歌时解析歌词文本 → 更新 [lyricsDocument] */
@@ -226,12 +244,16 @@ class MainViewModel constructor(
                 .distinctUntilChanged()
                 .flatMapLatest { (songId, online) ->
                     if (songId == null) {
-                        flowOf(null to null)
+                        flowOf(Triple(songId, null, null))
                     } else {
-                        songDao.observeById(songId).map { entity -> entity to online }
+                        songDao.observeById(songId).map { entity -> Triple(songId, entity, online) }
                     }
                 }
-                .collect { (songEntity, online) ->
+                .collectLatest { (songId, songEntity, online) ->
+                    lyricsSongId = null
+                    lyricsDocument = null
+                    _currentLyricLine.value = null
+                    _currentLyricMarquee.value = null
                     val doc = when {
                         songEntity != null -> withContext(Dispatchers.Default) {
                             LyricsParser.parseDocument(songEntity.lyrics)
@@ -240,7 +262,10 @@ class MainViewModel constructor(
                         online != null -> loadOnlineLyrics(online)
                         else -> null
                     }
-                    lyricsDocument = doc
+                    if (songId == playback.currentSongId.value) {
+                        lyricsDocument = doc
+                        lyricsSongId = songId
+                    }
                 }
         }
     }
@@ -290,7 +315,7 @@ class MainViewModel constructor(
             while (true) {
                 val enabled = miniPlayerLyricsEnabled.value
                 if (enabled) {
-                    val doc = lyricsDocument
+                    val doc = lyricsDocument.takeIf { lyricsSongId == playback.currentSongId.value }
                     val pos = playback.currentPosition()
                     val index = doc?.highlightedIndex(pos)
                     val line = index?.let { doc?.lines?.getOrNull(it) }
@@ -335,7 +360,7 @@ class MainViewModel constructor(
                 title = online.title.trim().takeIf { it.isNotEmpty() } ?: "未知歌曲",
                 subtitle = "$onlineArtist - $onlineAlbum",
                 artist = onlineArtist,
-                coverUri = online.coverUri,
+                coverUri = online.coverUri ?: meta?.takeIf { it.songId == songId }?.coverUri,
             )
         }
         val currentMetadata = meta?.takeIf { it.songId == songId }
@@ -569,7 +594,8 @@ private fun MusesAppContent(openSettingsRequest: Long) {
             NavDestination.Mine.toNavItem(currentKey, backStack),
         )
 
-        val nowPlaying by viewModel.nowPlaying.collectAsState()
+        val observedNowPlaying by viewModel.nowPlaying.collectAsState()
+        val nowPlaying = observedNowPlaying?.takeIf { it.songId == currentSongId }
         val isPlaying by viewModel.isPlaying.collectAsState()
         val isBuffering by playerVm.isBuffering.collectAsState()
         val miniPlayerLyricsEnabled by viewModel.miniPlayerLyricsEnabled.collectAsState()

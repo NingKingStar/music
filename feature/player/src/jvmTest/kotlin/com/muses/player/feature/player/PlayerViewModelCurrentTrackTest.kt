@@ -95,6 +95,22 @@ class PlayerViewModelCurrentTrackTest {
     }
 
     @Test
+    fun lyricsAppearWithoutWaitingForSlowCover() = runBlocking {
+        val song = onlineSong(id = "online:kw:slow-cover")
+        OnlineTrackSession.remember(listOf(song))
+        val resolver = object : OnlineTrackMetadataResolver {
+            override suspend fun resolveCover(ref: OnlineTrackRef): String? { delay(3000); return null }
+            override suspend fun resolveLyrics(ref: OnlineTrackRef) = OnlineTrackLyrics(lyric = "[00:01.000]及时显示")
+        }
+        val port = FakePort()
+        val vm = PlayerViewModel(port, FakeSongDao(), resolver, null, null)
+        try {
+            port.setCurrentSong(song.id)
+            awaitUntil(timeoutMs = 1000) { vm.lyricsDocument.value?.lines?.firstOrNull()?.text == "及时显示" }
+        } finally { vm.viewModelScope.cancel() }
+    }
+
+    @Test
     fun oldMetadataIsNotAppliedToNewSong() = runBlocking {
         val first = onlineSong(id = "online:kw:old", title = "Old")
         val second = onlineSong(id = "online:kw:new", title = "New").copy(coverUri = null)

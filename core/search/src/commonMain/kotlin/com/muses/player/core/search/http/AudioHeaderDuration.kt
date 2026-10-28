@@ -6,6 +6,42 @@ import com.muses.player.core.model.online.isTruncatedOnlineAudio
 internal fun isTruncatedAudio(actualMs: Long?, expectedMs: Long?): Boolean =
     isTruncatedOnlineAudio(actualMs, expectedMs)
 
+/**
+ * 判断这段前缀是否具备当前播放器（Media3 默认 extractor）可识别的音频容器头。
+ *
+ * 只用于拒绝「已确定无法解封装」的内容，不做内容性质判断，也不依赖 Content-Type：
+ * 部分平台对正常音频返回 `application/octet-stream`，而某些高档位返回的是无普通头的
+ * 数据块；后者会让 extractor 报 code 3003，只能在接受地址前就拦下。
+ *
+ * 覆盖播放器默认支持的常见封装：FLAC / MP3（含 ID3 大标签）/ Ogg / WAV / MP4-M4A /
+ * ADTS AAC / AC3 / AC4 / Matroska / AMR / MIDI / MPEG-TS。
+ */
+internal fun hasRecognizableAudioHeader(data: ByteArray, size: Int = data.size): Boolean {
+    val length = minOf(size, data.size)
+    if (length < 2) return false
+    fun u(index: Int) = data[index].toInt() and 255
+    fun tag(index: Int, value: String): Boolean = index >= 0 && index + value.length <= length &&
+        value.indices.all { u(index + it) == value[it].code }
+
+    if (tag(0, "fLaC")) return true
+    if (tag(0, "ID3")) return true
+    if (tag(0, "OggS")) return true
+    if (tag(0, "RIFF") && tag(8, "WAVE")) return true
+    if (tag(4, "ftyp")) return true
+    if (tag(0, "#!AMR")) return true
+    if (tag(0, "MThd")) return true
+    // Matroska / WebM 的 EBML 头
+    if (length >= 4 && u(0) == 0x1A && u(1) == 0x45 && u(2) == 0xDF && u(3) == 0xA3) return true
+    // 默认 extractor 也支持原始 AC3/EAC3 和 AC4，不能把这些有效音频一并拒绝。
+    if (u(0) == 0x0B && u(1) == 0x77) return true
+    if (u(0) == 0xAC && u(1) in 0x40..0x41) return true
+    // MP3 / ADTS AAC 帧同步（含无 ID3 标签的 MP3）
+    if (u(0) == 0xFF && (u(1) and 0xE0) == 0xE0) return true
+    // MPEG-TS：188 字节同步；要求至少三个同步字节，避免把单个 0x47 当容器
+    if (length >= 377 && u(0) == 0x47 && u(188) == 0x47 && u(376) == 0x47) return true
+    return false
+}
+
 /** 支持 FLAC STREAMINFO、MP3 Xing/Info/VBRI 和头部可见的 MP4 时长；未知格式放行。 */
 internal fun audioHeaderDurationMs(data: ByteArray): Long? {
     fun u(index: Int) = data[index].toInt() and 255

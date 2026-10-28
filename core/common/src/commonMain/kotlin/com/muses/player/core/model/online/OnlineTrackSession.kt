@@ -38,8 +38,22 @@ import kotlinx.coroutines.flow.update
  */
 object OnlineTrackSession {
 
+    data class PlaybackDetails(
+        val sourceName: String?,
+        val requestedQuality: String?,
+        val resolvedQuality: String?,
+        val local: Boolean,
+    )
+
     private val songs = MutableStateFlow<Map<String, Song>>(emptyMap())
     private val resolvedReferences = MutableStateFlow<Map<String, OnlineTrackRef>>(emptyMap())
+    private val playbackDetails = MutableStateFlow<Map<String, PlaybackDetails>>(emptyMap())
+    val details: StateFlow<Map<String, PlaybackDetails>> = playbackDetails.asStateFlow()
+
+    fun rememberPlayback(ref: OnlineTrackRef, result: OnlinePlayableUrl, local: Boolean) {
+        val detail = PlaybackDetails(result.sourceName, result.requestedQuality, result.quality, local)
+        playbackDetails.update { it + (ref.encode() to detail) + (resolvedReference(ref).encode() to detail) }
+    }
 
     /** 保留原队列 ID，但元数据请求必须跟随真正解析成功的平台版本。 */
     fun rememberResolution(original: OnlineTrackRef, resolved: OnlineTrackRef) {
@@ -70,6 +84,7 @@ object OnlineTrackSession {
         if (online.isEmpty()) return
         // 新一轮入队不能在解析成功前沿用上次播放的跨平台引用。
         val incomingRefs = online.mapNotNull { OnlineTrackRef.parse(it.path)?.encode() }.toSet()
+        playbackDetails.update { current -> current - incomingRefs }
         resolvedReferences.update { current -> current - incomingRefs }
         songs.update { current -> current + online.associateBy { it.id } }
     }
@@ -99,5 +114,26 @@ object OnlineTrackSession {
     suspend fun clear() {
         songs.value = emptyMap()
         resolvedReferences.value = emptyMap()
+        playbackDetails.value = emptyMap()
+    }
+}
+
+/**
+ * 播放来源摘要（沉浸页展示用）。
+ *
+ * 只展示可核实的信息：
+ * - 已下载文件只说明是本地文件，不猜测音质（流式播放不重新检测文件码率）；
+ * - 在线音源把脚本声明的档位标成「脚本声明」，不冒充实测音质；
+ * - 发生降档时保留请求档位，用户能看出是否回退过。
+ */
+fun playbackDetailSummary(detail: OnlineTrackSession.PlaybackDetails): String {
+    if (detail.local) return "本地下载 · 音质未核实"
+    val source = detail.sourceName?.takeIf { it.isNotBlank() } ?: "音源未核实"
+    val actual = detail.resolvedQuality?.takeIf { it.isNotBlank() }
+    val requested = detail.requestedQuality?.takeIf { it.isNotBlank() }
+    return when {
+        actual == null -> "$source · 音质未核实"
+        requested != null && requested != actual -> "$source · $actual（脚本声明，请求 $requested 已回退）"
+        else -> "$source · $actual（脚本声明）"
     }
 }
