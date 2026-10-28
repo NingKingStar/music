@@ -82,7 +82,11 @@ fun LxScriptsScreen(
     var urlError by remember { mutableStateOf<String?>(null) }
     var pendingDeleteId by remember { mutableStateOf<String?>(null) }
     var actionSheetFor by remember { mutableStateOf<LxScriptItem?>(null) }
-    val filePicker = rememberLxScriptFilePicker { viewModel.stageImport(it); showImportSheet = true }
+    val filePicker = rememberLxScriptFilePicker { result ->
+        result.fold(onSuccess = { viewModel.stageImport(it); showImportSheet = true }, onFailure = {
+            MusesSnackbar.show(it.message ?: "读取脚本失败，请确认文件已下载到本地且可读取。")
+        })
+    }
     val importUrl = rememberLxScriptUrlImporter { result ->
         fetchingUrl = false
         result.fold(onSuccess = { viewModel.importFromUrlContent(it, sourceUrl = scriptUrl) }, onFailure = {
@@ -374,7 +378,7 @@ internal fun LxScriptImportSheet(
                 .padding(16.dp),
         ) {
             Text(
-                text = "已内置免费音源，也可粘贴洛雪自定义源脚本（.js）内容添加其他音源。",
+                text = "支持导入 .js、.txt 音源脚本，也可粘贴脚本正文。文件后缀不影响校验结果。",
                 fontSize = 13.sp,
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )

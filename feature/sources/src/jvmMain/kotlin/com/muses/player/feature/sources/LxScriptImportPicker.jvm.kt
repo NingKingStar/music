@@ -1,6 +1,9 @@
 package com.muses.player.feature.sources
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import com.muses.player.core.lxsdk.readLxScriptText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -11,11 +14,20 @@ import javax.swing.JFileChooser
 import javax.swing.SwingUtilities
 
 @Composable
-actual fun rememberLxScriptFilePicker(onPicked: (String) -> Unit): () -> Unit = {
-    SwingUtilities.invokeLater {
-        val chooser = JFileChooser().apply { dialogTitle = "选择洛雪音源脚本"; isMultiSelectionEnabled = false }
-        if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-            runCatching { chooser.selectedFile.readText(Charsets.UTF_8) }.getOrNull()?.let(onPicked)
+actual fun rememberLxScriptFilePicker(onPicked: (Result<String>) -> Unit): () -> Unit {
+    val scope = rememberCoroutineScope()
+    val callback = rememberUpdatedState(onPicked)
+    return {
+        SwingUtilities.invokeLater {
+            val chooser = JFileChooser().apply { dialogTitle = "选择音源脚本（.js / .txt）"; isMultiSelectionEnabled = false }
+            if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        runCatching { chooser.selectedFile.inputStream().use(::readLxScriptText) }
+                    }
+                    callback.value(result)
+                }
+            }
         }
     }
 }
@@ -35,7 +47,7 @@ actual fun rememberLxScriptUrlImporter(onImported: (Result<String>) -> Unit): (S
                 if (status !in 200..299) {
                     throw IOException(if (status == 404) "脚本地址不存在（HTTP 404）" else "下载脚本失败（HTTP $status）")
                 }
-                connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                connection.inputStream.use(::readLxScriptText)
             } finally {
                 connection.disconnect()
             }

@@ -31,6 +31,21 @@ import kotlin.test.assertTrue
  * - 错误路径（未注册源、脚本抛错、初始化失败）。
  */
 class LxScriptEngineTest {
+    @Test fun `原脚本请求中使用控制台分组不影响返回地址`() = runTest {
+        val engine = engineWith("""
+            lx.on('request', () => {
+              console.group('请求'); console.groupCollapsed('响应');
+              console.groupEnd(); console.groupEnd();
+              return Promise.resolve('https://cdn.test/original.flac');
+            });
+            lx.send('inited', {sources: {kw: {actions: ['musicUrl'], qualitys: ['flac']}}});
+        """.trimIndent())
+        try {
+            engine.load()
+            assertEquals("https://cdn.test/original.flac", engine.getMusicUrl("kw", LxQuality.FLAC, "{}").url)
+        } finally { engine.close() }
+    }
+
     @Test
     fun `多个引擎同时初始化仍可独立解析`() = runBlocking {
         coroutineScope {

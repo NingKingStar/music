@@ -34,7 +34,7 @@ import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-/** 添加或编辑 LX 在线音源：设置显示名称，并可通过 URL 导入/替换脚本。 */
+/** 添加或编辑 LX 在线音源：设置显示名称，通过 URL 或本地文件导入/替换脚本。 */
 @Composable
 fun LxSourceFormScreen(
     onBack: () -> Unit,
@@ -81,6 +81,15 @@ fun LxSourceFormScreen(
                 urlError = it.message ?: "下载脚本失败。"
             },
         )
+    }
+    val filePicker = rememberLxScriptFilePicker { result ->
+        result.fold(onSuccess = { content ->
+            url = ""
+            urlError = null
+            viewModel.stageImport(content)
+        }, onFailure = {
+            MusesSnackbar.show(it.message ?: "读取脚本失败，请确认文件已下载到本地且可读取。")
+        })
     }
 
     val suggestedName = (validation as? LxImportValidation.Valid)?.scriptName
@@ -158,14 +167,37 @@ fun LxSourceFormScreen(
                     onValueChange = {
                         url = it
                         urlError = null
+                        viewModel.clearStagedImport()
                     },
                 )
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    Text("填写脚本 URL，或选择本地 .js / .txt 文件。")
+                    Button(
+                        onClick = {
+                            viewModel.clearStagedImport()
+                            urlError = null
+                            filePicker()
+                        },
+                        enabled = !isAdding && !isInitializing,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("选择脚本文件（.js / .txt）") }
+                    if (pendingSource != null) {
+                        when (val result = validation) {
+                            is LxImportValidation.Validating -> Text("正在校验脚本…")
+                            is LxImportValidation.Valid -> Text("校验通过：${result.scriptName ?: "未命名脚本"}")
+                            is LxImportValidation.Invalid -> Text("校验失败：${result.message}", color = MiuixTheme.colorScheme.error)
+                            else -> Unit
+                        }
+                    }
+                }
                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
                     Button(
                         onClick = {
                             if (!isAdding && !isInitializing) {
-                                urlError = if (sourceId == null && url.isBlank()) "请填写脚本 URL" else null
-                                if (sourceId != null && url.isBlank()) {
+                                urlError = if (sourceId == null && url.isBlank() && pendingSource == null) "请填写脚本 URL 或选择脚本文件" else null
+                                if (pendingSource != null) {
+                                    isAdding = true
+                                } else if (sourceId != null && url.isBlank()) {
                                     isAdding = true
                                     viewModel.confirmEdit(sourceId, name, replacementScript = null, onComplete = onSaveComplete)
                                 } else if (url.isNotBlank()) {
@@ -175,7 +207,7 @@ fun LxSourceFormScreen(
                                 }
                             }
                         },
-                        enabled = !isAdding && !isInitializing,
+                        enabled = !isAdding && !isInitializing && (pendingSource == null || validation is LxImportValidation.Valid),
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColorsPrimary(),
                     ) {

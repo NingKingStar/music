@@ -4,6 +4,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import com.muses.player.core.lxsdk.readLxScriptText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -12,15 +15,26 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 @Composable
-actual fun rememberLxScriptFilePicker(onPicked: (String) -> Unit): () -> Unit {
+actual fun rememberLxScriptFilePicker(onPicked: (Result<String>) -> Unit): () -> Unit {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val callback = rememberUpdatedState(onPicked)
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
-        runCatching {
-            context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }
-        }.getOrNull()?.let(onPicked)
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val input = context.contentResolver.openInputStream(uri)
+                        ?: throw IOException("无法打开所选文件，请将文件下载到本地后重试。")
+                    input.use(::readLxScriptText)
+                }
+            }
+            callback.value(result)
+        }
     }
-    return { launcher.launch(arrayOf("text/*", "application/javascript", "application/octet-stream")) }
+    // DocumentsProvider 对 js/txt 的 MIME 标记并不一致，选择阶段不据此禁用文件。
+    // 正文读取与真实脚本引擎预检负责判断能否导入。
+    return { launcher.launch(arrayOf("*/*")) }
 }
 
 @Composable
@@ -40,7 +54,7 @@ actual fun rememberLxScriptUrlImporter(onImported: (Result<String>) -> Unit): (S
                         if (status !in 200..299) {
                             throw IOException(if (status == 404) "脚本地址不存在（HTTP 404）" else "下载脚本失败（HTTP $status）")
                         }
-                        connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                        connection.inputStream.use(::readLxScriptText)
                     } finally {
                         connection.disconnect()
                     }

@@ -131,6 +131,9 @@ internal object LxBridge {
             warn: __log('warn'),
             error: __log('error'),
             debug: __log('debug'),
+            group: __log('log'),
+            groupCollapsed: __log('log'),
+            groupEnd: () => {},
           };
 
           globalThis.lx = {
