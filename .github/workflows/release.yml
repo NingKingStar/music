@@ -64,7 +64,7 @@ jobs:
             -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }} \
             -Pandroid.injected.versionName=${{ steps.version.outputs.version }} \
             -Pandroid.injected.versionCode=$VERSION_CODE \
-            -PdiagnosticCommit=$GITHUB_SHA
+            -PdiagnosticCommit=$(git rev-parse HEAD)
 
       - name: Rename muses APK
         run: |
@@ -270,9 +270,8 @@ jobs:
         with:
           name: muses-windows
           path: windows-assets
-      - uses: softprops/action-gh-release@v2
-        with:
-          draft: true
-          tag_name: ${{ inputs.tag }}
-          fail_on_unmatched_files: true
-          files: windows-assets/*.msi
+      - name: 补充 Windows 附件，保留现有发布状态
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: gh release upload "$RELEASE_TAG" windows-assets/*.msi --repo "$GITHUB_REPOSITORY"
