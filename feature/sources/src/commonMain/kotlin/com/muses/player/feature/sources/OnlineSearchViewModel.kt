@@ -65,6 +65,7 @@ data class OnlineSearchUiState(
     /** 当前平台筛选；null = 全部平台 */
     val filterPlatform: String? = null,
     val message: String? = null,
+    val originalFirst: Boolean = true,
 ) {
     /** 按筛选过滤后的平台列表 */
     val visiblePlatforms: List<PlatformSearchState>
@@ -408,7 +409,7 @@ class OnlineSearchViewModel(
     /** 合并结果按屏幕顺序入队；手动选择其他来源只替换当前歌曲。 */
     fun playGroupedResult(target: OnlineSearchResult) {
         if (_state.value.keyword.trim() != _state.value.searchedKeyword) return
-        val groups = groupSearchResults(_state.value.platforms)
+        val groups = groupSearchResults(_state.value.platforms, _state.value.searchedKeyword, _state.value.originalFirst)
         val selected = groups.indexOfFirst { target in it }
         if (selected < 0) return
         rememberSearch(_state.value.searchedKeyword)
@@ -424,6 +425,10 @@ class OnlineSearchViewModel(
         if (_state.value.keyword.trim() != _state.value.searchedKeyword) return
         rememberSearch(_state.value.searchedKeyword)
         playback.play(songId, songs)
+    }
+
+    fun toggleOriginalFirst() {
+        _state.value = _state.value.copy(originalFirst = !_state.value.originalFirst)
     }
 
     fun clearMessage() {
@@ -445,9 +450,9 @@ class OnlineSearchViewModel(
                     val merged = if (append) {
                         // 去重追加：平台内可能出现重复条目
                         val seen = existing?.results?.map { it.songId }?.toSet().orEmpty()
-                        existing?.results.orEmpty() + outcome.page.results.filter { it.songId !in seen }
+                        existing?.results.orEmpty() + outcome.page.results.filter { it.songId !in seen }.map { it.copy(searchPage = page) }
                     } else {
-                        outcome.page.results
+                        outcome.page.results.map { it.copy(searchPage = page) }
                     }
                     (existing ?: PlatformSearchState(outcome.platform, outcome.platform)).copy(
                         results = merged,

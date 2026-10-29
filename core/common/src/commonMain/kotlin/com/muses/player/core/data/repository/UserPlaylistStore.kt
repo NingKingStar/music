@@ -68,6 +68,16 @@ class UserPlaylistStore(private val dataStore: DataStore<Preferences>) {
         return id
     }
 
+    /** 只应用检查开始时仍未被用户编辑的条目；不增删或重排成员。 */
+    suspend fun applyMetadata(id: String, expected: List<DownloadTrack>, updated: List<Song>) = update { current ->
+        require(current.any { it.id == id }) { "歌单已被删除" }
+        val originals = expected.associateBy { it.id }
+        val patches = updated.associateBy { it.id }
+        current.map { playlist -> if (playlist.id != id) playlist else playlist.copy(tracks = playlist.tracks.map { saved ->
+            if (saved == originals[saved.id]) patches[saved.id]?.let(DownloadTrack::from) ?: saved else saved
+        }) }
+    }
+
     suspend fun rename(id: String, name: String) = update { current ->
         require(current.any { it.id == id }) { "歌单已被删除" }
         val valid = validateName(name, current, id)

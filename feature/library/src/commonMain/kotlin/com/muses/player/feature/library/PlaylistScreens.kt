@@ -142,6 +142,8 @@ fun CollectionSongsScreen(
     onBack: () -> Unit, onPlay: (Song, List<Song>) -> Unit, onQueue: (Song) -> Unit,
     onRemove: ((Song) -> Unit)?, removeLabel: String = "从当前歌单移除", onManageDownloads: (() -> Unit)? = null,
     onDownloadAll: (() -> Unit)? = null, downloadAllEnabled: Boolean = true,
+    onRepairMetadata: (() -> Unit)? = null, repairingMetadata: Boolean = false,
+    songStatus: (Song) -> String? = { null },
 ) {
     var query by rememberSaveable(title) { mutableStateOf("") }
     var actionSong by remember { mutableStateOf<Song?>(null) }
@@ -162,6 +164,9 @@ fun CollectionSongsScreen(
             },
             bottomContent = {
                 Column(Modifier.padding(horizontal = 16.dp)) {
+                    onRepairMetadata?.let { repair -> MusesTextButton(
+                        text = if (repairingMetadata) "正在检查信息…" else "检查并补全信息",
+                        onClick = repair, enabled = !repairingMetadata) }
                     LibrarySearchField(query, { query = it }, "搜索当前列表", onCancel = { query = "" })
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(if (query.isNotBlank()) "找到 ${visible.size} 首 / 共 ${songs.size} 首" else "${songs.size} 首",
@@ -185,7 +190,7 @@ fun CollectionSongsScreen(
             }
             items(visible, key = { it.id }) { song ->
                 SongListItem(
-                    song = SongItem(song.id, song.title, song.artist, song.album, song.coverUri, song.audioQuality),
+                    song = SongItem(song.id, song.title, song.artist, listOfNotNull(song.album, songStatus(song)).joinToString(" · "), song.coverUri, song.audioQuality),
                     isCurrent = song.id == currentSongId, isLiked = favorites.isLiked(song),
                     onClick = { onPlay(song, visible) }, onLongClick = { actionSong = song },
                     trailingContent = {

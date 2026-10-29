@@ -105,10 +105,13 @@ class PlaybackService : MediaSessionService() {
     /** 仅真正切歌才清理歌词状态，歌词替换本身也可能触发转场事件。 */
     private var transitionSongId: String? = null
     /** 换源恢复：同一首在冷却窗口内只重建一次，避免反复 stop/prepare。 */
+    private val earlyEndGuard = PlaybackEarlyEndGuard { android.os.SystemClock.elapsedRealtime() }
+    private val notifiedPlatformChanges = LinkedHashSet<String>()
     private val resourceRecoveryGuard = PlaybackResourceRecoveryGuard()
     /** 解封装失败后的同曲重试：同一首冷却窗口内只重试一次。 */
     private val containerRetryGuard = PlaybackContainerRetryGuard()
     /** 最近一次成功打开的在线地址（trackUri to url），用于解封装失败时排除坏地址。 */
+    private val openedOnlineResources = java.util.concurrent.ConcurrentHashMap<String, String>()
     @Volatile
     private var lastOpenedOnline: Pair<String, String>? = null
     /** 在线解析端口（解封装失败时通知其排除坏地址）。 */
@@ -160,7 +163,25 @@ class PlaybackService : MediaSessionService() {
                 upstreamFactory = baseFactory,
                 resolver = onlineResolver,
                 findDownloaded = { ref -> downloadedLocator.find(ref) },
-                onOpenedUrl = { trackUri, url -> lastOpenedOnline = trackUri to url },
+                onOpenedUrl = { trackUri, url ->
+                    lastOpenedOnline = trackUri to url
+                    openedOnlineResources[trackUri] = url
+                    while (openedOnlineResources.size > 64) openedOnlineResources.keys.firstOrNull()?.let { openedOnlineResources.remove(it) }
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        val ref = com.muses.player.core.model.online.OnlineTrackRef.parse(trackUri)
+                        val actual = ref?.let(com.muses.player.core.model.online.OnlineTrackSession::resolvedReference)
+                        val current = mediaSession?.player?.currentMediaItem
+                        if (ref != null && actual != null && ref.platform != actual.platform &&
+                            current?.localConfiguration?.uri?.toString() == trackUri) {
+                            val key = current.mediaId + "|" + ref.platform + "|" + actual.platform
+                            if (notifiedPlatformChanges.add(key)) {
+                                while (notifiedPlatformChanges.size > 64) notifiedPlatformChanges.remove(notifiedPlatformChanges.first())
+                                com.muses.player.core.ui.components.MusesSnackbar.show("原平台暂不可用，已切换至" +
+                                    com.muses.player.core.model.online.onlinePlatformLabel(actual.platform) + "同版歌曲")
+                            }
+                        }
+                    }
+                },
                 onResolveError = { uri, e ->
                     android.util.Log.w("MusesTiming", "resolveError uri=${uri.take(48)} err=${e?.message}")
                     errorLogStore.log(
@@ -305,6 +326,7 @@ class PlaybackService : MediaSessionService() {
         startNotificationLyricsMonitoring(player)
         startDesktopLyricsMonitoring(player)
         startVolumeBoostMonitoring()
+        startOnlineStallMonitoring(player)
         // ExoPlayer 只能在主线程访问：恢复流程在后台查库，player 操作投递主线程
         val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
         serviceScope.launch {
@@ -772,7 +794,10 @@ class PlaybackService : MediaSessionService() {
             com.muses.player.core.model.playback.QueueItem(player.getMediaItemAt(it).mediaId)
         }
         val onlineSongs = com.muses.player.core.model.online.OnlineTrackSession.findAll(items.map { it.songId })
-            .values.mapNotNull { it.toSavedOnlineSong() }
+            .values.mapNotNull { song ->
+                // 持久队列保留用户原条目；跨平台只属于本次播放，重启后仍可重试原来源。
+                (com.muses.player.core.model.online.OnlineTrackSession.originalSong(song.id) ?: song).toSavedOnlineSong()
+            }
         playbackStateRepository.writeSnapshot(
             PlaybackStateRepository.PlaybackSnapshot(
                 items = items,
@@ -786,23 +811,90 @@ class PlaybackService : MediaSessionService() {
         )
     }
 
+    private fun recoverOnlineSameSong(player: Player, id: String, index: Int, position: Long,
+        opened: Pair<String, String>, reason: String,
+    ): Boolean {
+        if (!opened.second.startsWith("http", true) || !player.playWhenReady ||
+            player.playbackSuppressionReason != Player.PLAYBACK_SUPPRESSION_REASON_NONE || !earlyEndGuard.allow(id)) return false
+        onlineResolverRef?.rejectPlayableUrl(opened.second)
+        errorLogStore.log(ErrorLogStore.Level.WARN, "Playback", "同曲恢复：原因="+reason+"，歌曲ID="+id+"，位置="+position+"ms")
+        com.muses.player.core.ui.components.MusesSnackbar.show("音频加载中断，正在尝试同版音源")
+        player.stop()
+        player.seekTo(index, position)
+        player.prepare()
+        player.playWhenReady = true
+        return true
+    }
+
+    private fun startOnlineStallMonitoring(player: Player) {
+        serviceScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(1_000)
+                val id = player.currentMediaItem?.mediaId
+                val uri = player.currentMediaItem?.localConfiguration?.uri?.toString()
+                val ref = com.muses.player.core.model.online.OnlineTrackRef.parse(uri)
+                if (earlyEndGuard.stalled(id, ref != null && player.currentPosition >= 5_000 && player.playbackState == Player.STATE_BUFFERING,
+                        player.playWhenReady, player.playbackSuppressionReason != Player.PLAYBACK_SUPPRESSION_REASON_NONE)) {
+                    val opened = uri?.let { key -> openedOnlineResources[key]?.let { key to it } }
+                    if (id != null && opened != null) recoverOnlineSameSong(player, id, player.currentMediaItemIndex,
+                        player.currentPosition, opened, "持续缓冲超过25秒")
+                }
+            }
+        }
+    }
+
     /** 持久化监听：转场/播放态切换/seek 触发节流保存；转场登记最近播放 */
+    private var playerIntentGeneration = 0L
+    private var playerTimelineGeneration = 0L
     private val persistenceListener = object : Player.Listener {
+        override fun onPlaybackSuppressionReasonChanged(playbackSuppressionReason: Int) {
+            errorLogStore.log(ErrorLogStore.Level.WARN, "Playback", "音频焦点/播放抑制变化：reason=" + playbackSuppressionReason)
+        }
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            playerIntentGeneration++
+            if (!playWhenReady) errorLogStore.log(ErrorLogStore.Level.WARN, "Playback", "播放暂停：reason="+reason)
+        }
+        override fun onTimelineChanged(timeline: androidx.media3.common.Timeline, reason: Int) { playerTimelineGeneration++ }
+
+        override fun onPlaybackStateChanged(state: Int) {
+            if (state != Player.STATE_ENDED) return
+            val player = mediaSession?.player ?: return
+            val id = player.currentMediaItem?.mediaId ?: return
+            val song = com.muses.player.core.model.online.OnlineTrackSession.snapshot.value[id] ?: return
+            if (!earlyEndGuard.isEarlyEnd(player.currentPosition, song.durationMs, player.duration)) return
+            val uri = player.currentMediaItem?.localConfiguration?.uri?.toString()
+            val opened = lastOpenedOnline?.takeIf { it.first == uri } ?: return
+            recoverOnlineSameSong(player, id, player.currentMediaItemIndex, player.currentPosition, opened, "队尾提前结束")
+        }
         override fun onPositionDiscontinuity(
             oldPosition: Player.PositionInfo,
             newPosition: Player.PositionInfo,
             reason: Int,
         ) {
-            if (reason != Player.DISCONTINUITY_REASON_AUTO_TRANSITION) return
+            if (reason != Player.DISCONTINUITY_REASON_AUTO_TRANSITION) { playerIntentGeneration++; return }
             val oldId = oldPosition.mediaItem?.mediaId ?: return
             val song = com.muses.player.core.model.online.OnlineTrackSession.snapshot.value[oldId] ?: return
             val expected = song.durationMs
             val played = oldPosition.positionMs
-            if (expected >= 90_000L && played > 0L && played + 30_000L < expected && played < expected / 2) {
-                errorLogStore.log(
-                    ErrorLogStore.Level.WARN, "Playback",
-                    "歌曲提前结束并自动切换：歌曲=${song.title}，已播=${played}ms，目录时长=${expected}ms，下一首=${newPosition.mediaItem?.mediaMetadata?.title ?: "未知"}"
-                )
+            if (earlyEndGuard.isEarlyEnd(played, expected, played)) {
+                errorLogStore.log(ErrorLogStore.Level.WARN, "Playback",
+                    "疑似提前结束：歌曲="+song.title+"，已播="+played+"ms，目录="+expected+"ms")
+                val index = oldPosition.mediaItemIndex
+                val nextId = newPosition.mediaItem?.mediaId
+                val uri = oldPosition.mediaItem?.localConfiguration?.uri?.toString()
+                val opened = lastOpenedOnline?.takeIf { it.first == uri }
+                // 回调返回后再恢复；用户随后切歌、暂停或编辑队列时不得抢回。
+                val timeline = playerTimelineGeneration
+                val intent = playerIntentGeneration
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    val player = mediaSession?.player ?: return@post
+                    if (timeline != playerTimelineGeneration || intent != playerIntentGeneration || !player.playWhenReady ||
+                        player.playbackSuppressionReason != Player.PLAYBACK_SUPPRESSION_REASON_NONE ||
+                        player.currentMediaItem?.mediaId != nextId || index !in 0 until player.mediaItemCount ||
+                        player.getMediaItemAt(index).mediaId != oldId) return@post
+                    if (opened == null) return@post
+                    recoverOnlineSameSong(player, oldId, index, played, opened, "提前结束")
+                }
             }
         }
 
@@ -892,6 +984,11 @@ class PlaybackService : MediaSessionService() {
                 recoveryController.setError(errorCopy)
                 return
             }
+
+            val retryId = player.currentMediaItem?.mediaId
+            val retryOpened = currentTrackUri?.let { key -> openedOnlineResources[key]?.let { key to it } }
+            if (!parseFailure && onlineRef != null && retryId != null && retryOpened != null && player.currentPosition >= 5_000 &&
+                recoverOnlineSameSong(player, retryId, player.currentMediaItemIndex, player.currentPosition, retryOpened, "读取中断")) return
 
             val failedId = player.currentMediaItem?.mediaId
             if (failedId != null) {

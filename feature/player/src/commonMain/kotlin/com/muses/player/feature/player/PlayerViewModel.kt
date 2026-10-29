@@ -118,6 +118,7 @@ class PlayerViewModel constructor(
      * 脚本 `pic` 与搜索结果自带封面都缺失时的兜底。
      */
     private val coverMatcher: CoverMatcher? = null,
+    private val onlineResolver: com.muses.player.core.model.online.OnlineTrackResolver? = null,
 ) : ViewModel() {
 
     val isPlaying: StateFlow<Boolean> = playback.isPlaying
@@ -325,6 +326,8 @@ class PlayerViewModel constructor(
     private var currentLines: List<AmllLyricLine> = emptyList()
     private var lastLineEndMs: Long = Long.MAX_VALUE
 
+    private val failedCovers = LinkedHashSet<String>()
+
     init {
         startPositionPolling()
         observeCurrentSong()
@@ -393,6 +396,7 @@ class PlayerViewModel constructor(
         val trackId = track?.toMeta()?.songId
         if (trackId != playback.currentSongId.value) return
         // 标题/艺术家先发布：不等封面·歌词的网络拉取，否则在线曲目会先白一下标题
+        if (_nowPlayingMeta.value?.songId != trackId) _stickyCover.value = null
         _nowPlayingMeta.value = track?.toMeta()
         val meta = _nowPlayingMeta.value
         com.muses.player.core.lyrics.DesktopLyricsState.publish(
@@ -491,8 +495,33 @@ class PlayerViewModel constructor(
         }
     }
 
+    fun onCoverLoadFailed(uri: String) {
+        val id = playback.currentSongId.value ?: return
+        val song = OnlineTrackSession.snapshot.value[id] ?: return
+        if (uri != _stickyCover.value || !failedCovers.add(id + "|" + uri)) return
+        while (failedCovers.size > 32) failedCovers.remove(failedCovers.first())
+        _stickyCover.value = null
+        viewModelScope.launch {
+            val cover = withTimeoutOrNull(6_000) { matchOnlineCover(song) }
+            if (!cover.isNullOrBlank()) publishOnlineCover(id, cover)
+        }
+    }
+
+    fun retryOriginalSource() {
+        val id = playback.currentSongId.value ?: return
+        val song = OnlineTrackSession.originalSong(id) ?: return
+        val ref = OnlineTrackRef.parse(song.path) ?: return
+        failedCovers.removeAll { it.startsWith(id + "|") }
+        coverMatcher?.invalidateNegativeCache(id)
+        onlineResolver?.invalidateReference(ref)
+        OnlineTrackSession.restoreOriginal(id)
+        playback.resetRecovery()
+        playback.clearPlaybackError()
+        playback.restartCurrent()
+    }
+
     private fun publishOnlineCover(songId: String, coverUri: String) {
-        if (playback.currentSongId.value != songId || coverUri.isBlank()) return
+        if (playback.currentSongId.value != songId || coverUri.isBlank() || (songId + "|" + coverUri) in failedCovers) return
         _stickyCover.value = coverUri
         playback.updateArtwork(songId, coverUri)
     }
@@ -516,6 +545,7 @@ class PlayerViewModel constructor(
                     artist = song.artist,
                     album = song.album,
                 ),
+                rejectedUrls = failedCovers.filter { it.startsWith(song.id + "|") }.map { it.substringAfter(song.id + "|") }.toSet(),
             )
         ) {
             is OnlineCoverMatchResult.Ok -> result.remoteUrl

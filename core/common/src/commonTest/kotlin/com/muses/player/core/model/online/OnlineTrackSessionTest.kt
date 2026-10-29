@@ -11,6 +11,20 @@ import kotlin.test.assertTrue
 
 /** [OnlineTrackSession] 测试：只登记在线曲目 + 回退查询语义 */
 class OnlineTrackSessionTest {
+    @Test fun `替代后仍可恢复原歌曲引用且队列身份不变`() = runTest {
+        OnlineTrackSession.clear()
+        try {
+            val original = OnlineTrackRef("wy", """{"songmid":"1"}""", "online")
+            val actual = OnlineTrackRef("tx", """{"songmid":"2"}""", "online")
+            val song = Song("online:wy:1", "online", original.encode(), "歌曲", sourceType = SourceType.ONLINE)
+            OnlineTrackSession.remember(listOf(song))
+            OnlineTrackSession.rememberResolution(original, actual)
+            assertEquals(song, OnlineTrackSession.originalSong(song.id))
+            OnlineTrackSession.restoreOriginal(song.id)
+            assertEquals(song, OnlineTrackSession.find(song.id))
+            assertEquals(original, OnlineTrackSession.resolvedReference(original))
+        } finally { OnlineTrackSession.clear() }
+    }
 
     @Test fun `跨平台播放成功后保留队列 ID 并更新歌词引用`() = runTest {
         OnlineTrackSession.clear()

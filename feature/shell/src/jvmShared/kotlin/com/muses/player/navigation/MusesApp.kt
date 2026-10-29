@@ -828,6 +828,10 @@ private fun MusesAppContent(openSettingsRequest: Long) {
         } // BoxWithConstraints 关（主屏常驻，动画中不位移/不淡化）
         if (playerOverlayMounted) {
             CompositionLocalProvider(
+                com.muses.player.core.ui.components.LocalFindOtherSongVersions provides { keyword ->
+                    closePlayer()
+                    backStack.pushUnique(MusesRoute.OnlineSearch(keyword))
+                },
                 com.muses.player.core.ui.components.LocalFavoriteSongs provides favorites,
                 com.muses.player.core.ui.components.LocalSetSongLiked provides setSongLiked,
                 com.muses.player.core.ui.components.LocalAddSongToPlaylist provides addSongToPlaylist,

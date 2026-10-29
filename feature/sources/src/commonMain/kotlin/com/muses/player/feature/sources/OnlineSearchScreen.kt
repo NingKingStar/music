@@ -96,7 +96,7 @@ fun OnlineSearchScreen(
     }
 
     selectedSourceSong?.let { selected ->
-        val sources = groupSearchResults(state.platforms).firstOrNull { selected in it }.orEmpty()
+        val sources = groupSearchResults(state.platforms, state.searchedKeyword, state.originalFirst).firstOrNull { selected in it }.orEmpty()
         MoreSourcesScreen(
             song = selected,
             sources = sources,
@@ -150,6 +150,13 @@ fun OnlineSearchScreen(
                 PlatformPill("歌曲", state.category == SearchCategory.ALL, { viewModel.setCategory(SearchCategory.ALL) })
                 PlatformPill("专辑", state.category == SearchCategory.ALBUMS, { viewModel.setCategory(SearchCategory.ALBUMS) })
                 PlatformPill("歌手", state.category == SearchCategory.ARTISTS, { viewModel.setCategory(SearchCategory.ARTISTS) })
+            }
+
+            if (state.category == SearchCategory.ALL && state.searched) {
+                Text(if (state.originalFirst) "排序：相关性 · 原唱优先 ⇄" else "排序：平台默认 ⇄",
+                    modifier = Modifier.fillMaxWidth().clickable { viewModel.toggleOriginalFirst() }
+                        .padding(horizontal = 20.dp, vertical = 8.dp),
+                    fontSize = 12.sp, color = scheme.primary)
             }
 
             // 提示横幅（如「该平台无可用脚本」）：点按可关闭
@@ -224,7 +231,7 @@ fun OnlineSearchScreen(
                                 LibraryResultRow(artist.name, "${artist.songCount} 首歌曲", "查看") { onArtistClick(artist.id) }
                             }
                         } else {
-                        val groups = groupSearchResults(state.platforms)
+                        val groups = groupSearchResults(state.platforms, state.searchedKeyword, state.originalFirst)
                         val lyricMatches = if (lyricResults.keyword == state.searchedKeyword) lyricResults.matches else emptyList()
                         val localSongs = ((if (matching) libraryResults.songs else emptyList()) + lyricMatches.map { it.song }).distinctBy { it.id }
                         val mergedIds = groups.flatMap { matchingLibrarySongs(it, localSongs) }.map { it.id }.toSet()

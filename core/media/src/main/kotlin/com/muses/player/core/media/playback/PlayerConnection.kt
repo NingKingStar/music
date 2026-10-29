@@ -349,6 +349,16 @@ class PlayerConnection constructor(
     }
 
     /** 选中并播放队列中第 index 项 */
+    override fun restartCurrent() {
+        val player = controller ?: return
+        val index = player.currentMediaItemIndex
+        if (index < 0) return
+        player.stop()
+        player.seekTo(index, 0)
+        player.prepare()
+        player.playWhenReady = true
+    }
+
     override fun playAtIndex(index: Int) {
         val player = controller ?: return
         val mediaIndex = player.currentTimeline.playbackQueueIndices(player.shuffleModeEnabled)

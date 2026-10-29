@@ -110,35 +110,7 @@ class QqChartProvider(
         val list = container.arr("songInfoList")
             ?: return OnlineChartPage(platform, chartId, page, emptyList(), false)
 
-        val results = list.mapNotNull { element ->
-            val item = element as? JsonObject ?: return@mapNotNull null
-            val mid = item.str("mid") ?: return@mapNotNull null
-            val name = item.str("name") ?: item.str("title") ?: return@mapNotNull null
-            val singer = item.arr("singer")?.joinStr("name")
-            val album = item.obj("album")?.str("name")?.takeIf { it.isNotBlank() }
-            // interval 单位为秒（与 musicInfo 的 duration 语义一致）
-            val interval = item.long("interval")
-
-            OnlineSearchResult(
-                platform = platform,
-                songId = mid,
-                name = name,
-                artist = singer,
-                album = album,
-                durationMs = interval?.times(1000),
-                coverUrl = qqCoverUrl(item.obj("album")),
-                musicInfoJson = buildMusicInfo(
-                    "songmid" to mid,
-                    name = name,
-                    singer = singer,
-                    album = album,
-                    durationSec = interval,
-                    extra = buildMap {
-                        item.obj("album")?.str("mid")?.let { put("albumMid", it) }
-                    },
-                ),
-            )
-        }
+        val results = list.mapNotNull { (it as? JsonObject)?.let(::parseTxTrack) }
         val hasMore = container.long("totalNum")?.let { offset + results.size < it } ?: (results.size >= pageSize)
         return OnlineChartPage(platform, chartId, page, results, hasMore)
     }

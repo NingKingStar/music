@@ -42,15 +42,8 @@ class PlaylistImportService(private val http: SearchHttp = SearchHttp()) {
             val entries = detail.arr("songs") ?: error("歌曲详情读取失败，请稍后重试")
             for (entry in entries) {
                 val item = entry as? JsonObject ?: continue
-                val songId = item.long("id") ?: continue
-                val songName = item.str("name") ?: continue
-                val artist = item.arr("ar")?.joinStr("name") ?: item.arr("artists")?.joinStr("name")
-                val albumObj = item.obj("al") ?: item.obj("album")
-                val album = albumObj?.str("name")
-                val duration = item.long("dt") ?: item.long("duration")
-                val songIdText = songId.toString()
-                found[songId] = OnlineSearchResult("wy", songIdText, songName, artist, album, duration, albumObj?.str("picUrl"),
-                    buildMusicInfo("id" to songIdText, name = songName, singer = artist, album = album, durationSec = duration?.div(1000)))
+                val song = parseWyTrack(item) ?: continue
+                found[song.songId.toLong()] = song
             }
         }
         require(ids.all { it in found }) { "部分歌曲无法读取，未导入歌单，请检查权限后重试" }
@@ -84,16 +77,7 @@ class PlaylistImportService(private val http: SearchHttp = SearchHttp()) {
             require(page.isNotEmpty()) { "平台返回的歌单不完整，请稍后重试" }
             for (entry in page) {
                 val raw = entry as? JsonObject ?: error("平台返回的歌曲信息不完整")
-                val item = raw.obj("songInfo") ?: raw.obj("songinfo") ?: raw
-                val mid = item.str("mid") ?: item.str("songmid") ?: error("部分歌曲缺少标识，未导入")
-                val title = item.str("name") ?: item.str("title") ?: item.str("songname") ?: error("部分歌曲缺少名称，未导入")
-                val artist = item.arr("singer")?.joinStr("name")
-                val albumObj = item.obj("album")
-                val album = albumObj?.str("name")
-                val seconds = item.long("interval")
-                songs += OnlineSearchResult("tx", mid, title, artist, album, seconds?.times(1000), qqCoverUrl(albumObj),
-                    buildMusicInfo("songmid" to mid, "mid" to mid, name = title, singer = artist, album = album, durationSec = seconds,
-                        extra = catalogMetadata("tx", item)))
+                songs += parseTxTrack(raw) ?: error("部分歌曲缺少标识或名称，未导入")
             }
             offset += page.size
             require(offset <= total) { "平台返回的歌单数量异常，请稍后重试" }

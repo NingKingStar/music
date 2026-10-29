@@ -59,6 +59,33 @@ import kotlin.test.assertTrue
  * 真实线程池，需要真实等待（runTest 的虚拟时间会让轮询等待失效）。
  */
 class PlayerViewModelCurrentTrackTest {
+    @Test fun `封面URL非空但加载失败后排除坏地址再找下一源`() = runBlocking {
+        val song = onlineSong(id = "online:kw:bad-cover")
+        OnlineTrackSession.remember(listOf(song))
+        var calls = 0
+        fun provider(source: com.muses.player.core.scrape.cover.OnlineCoverSource, url: String) = object : com.muses.player.core.scrape.cover.CoverProvider {
+            override val id = source
+            override suspend fun searchCoverUrl(query: com.muses.player.core.scrape.cover.OnlineCoverQuery): String {
+                calls++
+                return url
+            }
+        }
+        val matcher = com.muses.player.core.scrape.cover.CoverMatcher(listOf(
+            provider(com.muses.player.core.scrape.cover.OnlineCoverSource.WY, song.coverUri!!),
+            provider(com.muses.player.core.scrape.cover.OnlineCoverSource.TX, "https://cdn.test/backup.jpg"),
+        ))
+        val port = FakePort()
+        val vm = PlayerViewModel(port, FakeSongDao(), FakeMetadataResolver(), null, matcher)
+        try {
+            port.setCurrentSong(song.id)
+            awaitUntil { vm.stickyCover.value == song.coverUri }
+            vm.onCoverLoadFailed(song.coverUri!!)
+            awaitUntil { vm.stickyCover.value == "https://cdn.test/backup.jpg" }
+            assertEquals(2, calls)
+            vm.onCoverLoadFailed(song.coverUri!!)
+            assertEquals(2, calls)
+        } finally { vm.viewModelScope.cancel() }
+    }
 
     @Test
     fun switchingTracksDoesNotRetainOldArtwork() = runBlocking {

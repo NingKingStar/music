@@ -190,9 +190,26 @@ fun PlayerScreen(
     val nowPlayingMeta by viewModel.nowPlayingMeta.collectAsStateWithLifecycle()
     val favoriteSongId by viewModel.currentSongId.collectAsStateWithLifecycle()
     val currentMeta = nowPlayingMeta?.takeIf { it.songId == favoriteSongId }
-    val displayCover = if (currentMeta != null) stickyCover ?: initialCoverUri?.takeIf { initialCoverSongId == currentMeta.songId } else null
+    val displayCover = if (currentMeta?.isOnline == true) stickyCover else if (currentMeta != null) stickyCover ?: initialCoverUri?.takeIf { initialCoverSongId == currentMeta.songId } else null
     val onlineSongs by com.muses.player.core.model.online.OnlineTrackSession.snapshot.collectAsStateWithLifecycle()
     val playbackSummary by viewModel.playbackSummary.collectAsStateWithLifecycle()
+    val findOtherVersions = com.muses.player.core.ui.components.LocalFindOtherSongVersions.current
+    val findVersions = {
+        val song = com.muses.player.core.model.online.OnlineTrackSession.originalSong(favoriteSongId.orEmpty())
+        if (song != null) findOtherVersions?.invoke(listOfNotNull(song.title, song.artist).joinToString(" "))
+    }
+    var showSourceDetails by remember { mutableStateOf(false) }
+    if (showSourceDetails) MusesDialog(
+        title = "播放来源", message = playbackSummary ?: "尚未取得实际播放来源",
+        confirmText = "重试原来源", dismissText = "关闭",
+        onDismiss = { showSourceDetails = false },
+        onConfirm = { showSourceDetails = false; viewModel.retryOriginalSource() },
+        content = {
+            Text("仅自动替代可信同版。其他演唱者、现场或翻唱版本由你选择。")
+            if (findOtherVersions != null) Text("查找其他版本（手动选择）",
+                modifier = Modifier.clickable { showSourceDetails = false; findVersions() }.padding(12.dp))
+        },
+    )
     val favoriteSong = onlineSongs[favoriteSongId] ?: LocalFavoriteSongs.current.library.firstOrNull { it.id == favoriteSongId }
     val title = currentMeta?.title?.trim()?.takeIf { it.isNotEmpty() } ?: ""
     val artist = currentMeta?.artist ?: ""
@@ -232,6 +249,8 @@ fun PlayerScreen(
     // 外层：m-popup 背景透明（对齐 .player-page__popup background: transparent !important）——
     // 无 scrim 黑化，drag-layer 下滑时直接漏出底下列表（原版 1:1）
     CompositionLocalProvider(
+        com.muses.player.core.ui.components.LocalPlayerCoverFailure provides viewModel::onCoverLoadFailed,
+        LocalPlaybackSourceDetails provides { showSourceDetails = true },
         LocalPlayerContentColor provides if (coverContentColorEnabled) contentColor else Color.White,
         LocalImmersiveFavoriteSong provides favoriteSong,
         com.muses.player.feature.player.lyric.LocalPlaybackLyricsRetry provides
@@ -464,6 +483,8 @@ fun PlayerScreen(
                         color = Color.White,
                         modifier = Modifier.clickable(onClick = { viewModel.retryPlayback() }).padding(8.dp),
                     )
+                    if (findOtherVersions != null) Text("其他版本", color = Color.White,
+                        modifier = Modifier.clickable { findVersions() }.padding(8.dp))
                     Spacer(Modifier.width(8.dp))
                     Icon(
                         TablerIcons.Close,
@@ -828,6 +849,7 @@ private fun TabletImmersiveLayout(
 
 // ---------- 固定头部：player-page__song-head--fixed / --in-panel ----------
 
+private val LocalPlaybackSourceDetails = staticCompositionLocalOf<(() -> Unit)?> { null }
 private val LocalImmersiveFavoriteSong = staticCompositionLocalOf<com.muses.player.core.model.Song?> { null }
 
 @Composable
@@ -838,6 +860,7 @@ private fun FixedSongHead(
     modifier: Modifier = Modifier,
 ) {
     val contentColor = LocalPlayerContentColor.current
+    val showSourceDetails = LocalPlaybackSourceDetails.current
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         Column(
             modifier = Modifier.weight(1f),
@@ -873,7 +896,7 @@ private fun FixedSongHead(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     lineHeight = 16.sp,
-                    modifier = Modifier.padding(top = 1.dp),
+                    modifier = Modifier.padding(top = 1.dp).clickable { showSourceDetails?.invoke() },
                 )
             }
         }

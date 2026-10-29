@@ -52,6 +52,10 @@ class OnlineResolveReuseCache(
         entries.update { current -> current.filterValues { it.value.url != url } }
     }
 
+    fun invalidatePrefix(prefix: String) {
+        entries.update { current -> current.filterKeys { !it.startsWith(prefix) } }
+    }
+
     fun clear() {
         entries.value = emptyMap()
     }

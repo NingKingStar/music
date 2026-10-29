@@ -80,43 +80,8 @@ class WyChartProvider(
         val tracks = root.obj("result")?.arr("tracks")
             ?: return OnlineChartPage(platform, chartId, page, emptyList(), false)
 
-        val all = tracks.mapNotNull { element ->
-            val item = element as? JsonObject ?: return@mapNotNull null
-            val songId = item.long("id") ?: return@mapNotNull null
-            val name = item.str("name") ?: return@mapNotNull null
-            // 旧字段 artists[] / album{}，新字段 ar[] / al{}
-            val singer = item.arr("artists")?.joinStr("name") ?: item.arr("ar")?.joinStr("name")
-            val albumObj = item.obj("album") ?: item.obj("al")
-            val album = albumObj?.str("name")?.takeIf { it.isNotBlank() }
-            // 时长：旧 duration / 新 dt，均为毫秒
-            val durationMs = item.long("duration") ?: item.long("dt")
-            val cover = albumObj?.str("picUrl")
-            val idText = songId.toString()
+        val all = tracks.mapNotNull { (it as? JsonObject)?.let(::parseWyTrack) }
 
-            OnlineSearchResult(
-                platform = platform,
-                songId = idText,
-                name = name,
-                artist = singer,
-                album = album,
-                durationMs = durationMs,
-                coverUrl = cover,
-                musicInfoJson = buildMusicInfo(
-                    "id" to idText,
-                    name = name,
-                    singer = singer,
-                    album = album,
-                    durationSec = durationMs?.div(1000),
-                    extra = buildMap {
-                        put("originCoverType", (item.long("originCoverType") ?: 0L).toString())
-                        put("catalogQuality", com.muses.player.core.search.wyCatalogQualityLabel(item) ?: "unknown")
-                        albumObj?.long("id")?.let { put("albumId", it.toString()) }
-                    },
-                ),
-            )
-        }
-
-        // 平台一次给全量：本地切片
         val safePage = page.coerceAtLeast(1)
         val from = (safePage - 1) * pageSize
         if (from >= all.size) {

@@ -4,7 +4,7 @@ import com.muses.player.core.search.OnlineSearchResult
 import kotlin.math.abs
 
 /** 只合并有足够证据的跨平台结果；信息不足时保留独立行。 */
-internal fun groupSearchResults(platforms: List<PlatformSearchState>): List<List<OnlineSearchResult>> {
+internal fun groupSearchResults(platforms: List<PlatformSearchState>, keyword: String = "", originalFirst: Boolean = true): List<List<OnlineSearchResult>> {
     val groups = mutableListOf<MutableList<OnlineSearchResult>>()
     platforms.flatMap { it.results }.forEach { result ->
         val group = groups.firstOrNull { candidates ->
@@ -12,7 +12,9 @@ internal fun groupSearchResults(platforms: List<PlatformSearchState>): List<List
         }
         if (group == null) groups.add(mutableListOf(result)) else group.add(result)
     }
-    return groups
+    return if (!originalFirst || keyword.isBlank()) groups else groups
+        .map { it.sortedWith(compareBy<OnlineSearchResult> { song -> song.searchPage }.thenByDescending { song -> com.muses.player.core.search.searchResultRank(song, keyword) }) }
+        .sortedWith(compareBy<List<OnlineSearchResult>> { it.minOf { song -> song.searchPage } }.thenByDescending { com.muses.player.core.search.searchResultRank(it.first(), keyword) })
 }
 
 private fun sameRecording(a: OnlineSearchResult, b: OnlineSearchResult): Boolean {

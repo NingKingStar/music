@@ -7,6 +7,13 @@ import kotlin.test.assertTrue
 
 /** 播放来源摘要：本地、脚本声明音质、降档回退、未知信息都要如实区分。 */
 class PlaybackDetailSummaryTest {
+    @Test fun `跨平台替代显示原平台实际平台和音源而非只显示音质`() {
+        val text = playbackDetailSummary(OnlineTrackSession.PlaybackDetails("ikun", "master", "flac", false, "wy", "tx"))
+        assertTrue(text.contains("QQ音乐"))
+        assertTrue(text.contains("已从网易云音乐切换同版"))
+        assertTrue(text.contains("ikun"))
+        assertTrue(text.contains("请求 master 已回退"))
+    }
 
     @Test
     fun `本地下载不冒充实测音质`() {

@@ -30,6 +30,8 @@ data class OnlineSearchResult(
      * 冗余提供可显著提高跨脚本兼容性，代价仅是 JSON 略大。
      */
     val musicInfoJson: String,
+    /** 展示排序只重排同一页，后续分页不能把已看到的条目挤走。 */
+    val searchPage: Int = 1,
 ) {
     /** 转为播放链路可直接消费的曲目引用 */
     fun toTrackRef(sourceId: String, quality: String? = null): OnlineTrackRef =

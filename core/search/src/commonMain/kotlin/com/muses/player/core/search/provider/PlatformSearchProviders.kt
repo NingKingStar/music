@@ -63,34 +63,7 @@ class TxSearchProvider(
             ?: throw OnlineSearchException(platform, "QQ音乐返回结构异常")
         val list = songNode.arr("list") ?: return OnlineSearchPage(platform, keyword, page, emptyList(), false)
 
-        val results = list.mapNotNull { element ->
-            val item = element as? JsonObject ?: return@mapNotNull null
-            val mid = item.str("mid") ?: return@mapNotNull null
-            val name = item.str("name") ?: item.str("title") ?: return@mapNotNull null
-            val singer = item.arr("singer")?.joinStr("name")
-            val albumObj = item.obj("album")
-            val album = albumObj?.str("name")?.takeIf { it.isNotBlank() }
-            val interval = item.long("interval")
-            OnlineSearchResult(
-                platform = platform,
-                songId = mid,
-                name = name,
-                artist = singer,
-                album = album,
-                durationMs = interval?.times(1000),
-                // 封面用专辑 mid 拼（y.gtimg.cn 标准格式）；mid 缺失时留空由 UI 落占位
-                coverUrl = qqCoverUrl(albumObj),
-                musicInfoJson = buildMusicInfo(
-                    "songmid" to mid,
-                    "mid" to mid,
-                    name = name,
-                    singer = singer,
-                    album = album,
-                    durationSec = interval,
-                    extra = catalogMetadata(platform, item),
-                ),
-            )
-        }
+        val results = list.mapNotNull { (it as? JsonObject)?.let(::parseTxTrack) }
         val totalNum = songNode.long("totalnum")
         val hasMore = when {
             totalNum != null && totalNum > 0 -> page.toLong() * pageSize < totalNum
@@ -224,33 +197,7 @@ class WySearchProvider(
         val songs = resultNode.arr("songs")
             ?: return OnlineSearchPage(platform, keyword, page, emptyList(), false)
 
-        val results = songs.mapNotNull { element ->
-            val item = element as? JsonObject ?: return@mapNotNull null
-            val id = item.str("id") ?: return@mapNotNull null
-            val name = item.str("name") ?: return@mapNotNull null
-            val artist = item.arr("artists")?.joinStr("name")
-            val albumObj = item.obj("album")
-            val album = albumObj?.str("name")?.takeIf { it.isNotBlank() }
-            val durationMs = item.long("duration")
-            OnlineSearchResult(
-                platform = platform,
-                songId = id,
-                name = name,
-                artist = artist,
-                album = album,
-                durationMs = durationMs,
-                // 该接口通常只给加密 picId（转 URL 需 AES，成本高）；若响应已带明文 picUrl 则直接用
-                coverUrl = albumObj?.str("picUrl")?.takeIf { it.startsWith("http") },
-                musicInfoJson = buildMusicInfo(
-                    "songmid" to id,
-                    "id" to id,
-                    name = name,
-                    singer = artist,
-                    album = album,
-                    durationSec = durationMs?.div(1000),
-                ),
-            )
-        }
+        val results = songs.mapNotNull { (it as? JsonObject)?.let(::parseWyTrack) }
         val total = resultNode.long("songCount")
         val hasMore = when {
             total != null && total > 0 -> offset + results.size < total

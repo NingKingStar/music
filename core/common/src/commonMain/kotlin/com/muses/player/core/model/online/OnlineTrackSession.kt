@@ -43,7 +43,19 @@ object OnlineTrackSession {
         val requestedQuality: String?,
         val resolvedQuality: String?,
         val local: Boolean,
+        val originalPlatform: String? = null,
+        val resolvedPlatform: String? = null,
     )
+
+    private val originalSongs = MutableStateFlow<Map<String, Song>>(emptyMap())
+    fun originalSong(id: String): Song? = originalSongs.value[id]
+    fun restoreOriginal(id: String) {
+        val song = originalSongs.value[id] ?: return
+        val ref = OnlineTrackRef.parse(song.path) ?: return
+        resolvedReferences.update { it - ref.encode() }
+        playbackDetails.update { it - ref.encode() }
+        songs.update { it + (id to song) }
+    }
 
     private val songs = MutableStateFlow<Map<String, Song>>(emptyMap())
     private val resolvedReferences = MutableStateFlow<Map<String, OnlineTrackRef>>(emptyMap())
@@ -51,7 +63,7 @@ object OnlineTrackSession {
     val details: StateFlow<Map<String, PlaybackDetails>> = playbackDetails.asStateFlow()
 
     fun rememberPlayback(ref: OnlineTrackRef, result: OnlinePlayableUrl, local: Boolean) {
-        val detail = PlaybackDetails(result.sourceName, result.requestedQuality, result.quality, local)
+        val detail = PlaybackDetails(result.sourceName, result.requestedQuality, result.quality, local, ref.platform, resolvedReference(ref).platform)
         playbackDetails.update { it + (ref.encode() to detail) + (resolvedReference(ref).encode() to detail) }
     }
 
@@ -86,6 +98,7 @@ object OnlineTrackSession {
         val incomingRefs = online.mapNotNull { OnlineTrackRef.parse(it.path)?.encode() }.toSet()
         playbackDetails.update { current -> current - incomingRefs }
         resolvedReferences.update { current -> current - incomingRefs }
+        originalSongs.update { it + online.associateBy { song -> song.id } }
         songs.update { current -> current + online.associateBy { it.id } }
     }
 
@@ -112,6 +125,7 @@ object OnlineTrackSession {
 
     /** 清空（切换音源/退出在线搜索时调用，避免陈旧条目长期占用） */
     suspend fun clear() {
+        originalSongs.value = emptyMap()
         songs.value = emptyMap()
         resolvedReferences.value = emptyMap()
         playbackDetails.value = emptyMap()
@@ -128,7 +142,10 @@ object OnlineTrackSession {
  */
 fun playbackDetailSummary(detail: OnlineTrackSession.PlaybackDetails): String {
     if (detail.local) return "本地下载 · 音质未核实"
-    val source = detail.sourceName?.takeIf { it.isNotBlank() } ?: "音源未核实"
+    val platform = detail.resolvedPlatform?.let(::onlinePlatformLabel)
+    val changed = detail.originalPlatform != null && detail.resolvedPlatform != null && detail.originalPlatform != detail.resolvedPlatform
+    val suffix = if (changed) " · 已从${onlinePlatformLabel(detail.originalPlatform!!)}切换同版" else ""
+    val source = (platform?.let { "$it · " }.orEmpty() + (detail.sourceName?.takeIf { it.isNotBlank() } ?: "音源未核实")) + suffix
     val actual = detail.resolvedQuality?.takeIf { it.isNotBlank() }
     val requested = detail.requestedQuality?.takeIf { it.isNotBlank() }
     return when {
@@ -136,4 +153,9 @@ fun playbackDetailSummary(detail: OnlineTrackSession.PlaybackDetails): String {
         requested != null && requested != actual -> "$source · $actual（脚本声明，请求 $requested 已回退）"
         else -> "$source · $actual（脚本声明）"
     }
+}
+
+fun onlinePlatformLabel(platform: String): String = when (platform) {
+    "wy" -> "网易云音乐"; "tx" -> "QQ音乐"; "kw" -> "酷我音乐"; "kg" -> "酷狗音乐"; "mg" -> "咪咕音乐"
+    else -> platform
 }

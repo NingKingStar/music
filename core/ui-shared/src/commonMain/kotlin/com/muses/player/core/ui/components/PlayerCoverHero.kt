@@ -30,6 +30,9 @@ import coil3.compose.AsyncImage
 import com.muses.player.core.ui.icons.TablerIcons
 import top.yukonga.miuix.kmp.squircle.squircleClip
 
+val LocalFindOtherSongVersions = androidx.compose.runtime.staticCompositionLocalOf<((String) -> Unit)?> { null }
+val LocalPlayerCoverFailure = androidx.compose.runtime.staticCompositionLocalOf<((String) -> Unit)?> { null }
+
 /**
  * `.player-page__cover-hero` —— 播放页封面 hero（aspect 1 正方形，圆角 12dp）。
  *
@@ -45,6 +48,7 @@ fun PlayerCoverHero(
     screenWidth: Dp = 360.dp,
     isNarrowHeight: Boolean = false,
 ) {
+    val onFailure = LocalPlayerCoverFailure.current
     val maxHeroHeight = remember(screenHeight) { minOf(screenHeight * 0.5f, 420.dp) }
     val narrowMaxWidth = remember(screenWidth, isNarrowHeight) {
         if (isNarrowHeight) minOf(screenWidth * 0.34f, 150.dp) else null
@@ -105,6 +109,7 @@ fun PlayerCoverHero(
             if (!coverUri.isNullOrBlank()) {
                 AsyncImage(
                     model = coverUri,
+                    onError = { onFailure?.invoke(coverUri) },
                     contentDescription = "封面",
                     contentScale = ContentScale.Crop,
                     modifier = Modifier

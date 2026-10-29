@@ -76,6 +76,9 @@ interface PlaybackPort : PlayerPort {
 
     fun playAtIndex(index: Int)
 
+    /** 显式重试当前歌曲，宿主可重建媒体源。 */
+    fun restartCurrent() { playAtIndex(queueSongIds.value.indexOf(currentSongId.value).coerceAtLeast(0)) }
+
     fun removeQueueItemAt(index: Int)
 
     /**

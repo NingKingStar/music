@@ -39,8 +39,10 @@ class CrossPlatformTrackMatcher(private val search: OnlineSearchService) : Onlin
             } }.flatMap { it.await() }
         }
         return results.filter { candidate ->
-            normalize(candidate.name) == normalize(name) && artists(candidate.artist.orEmpty()) == expectedArtists &&
-                (duration == null || candidate.durationMs == null || abs(candidate.durationMs / 1000 - duration) <= 10)
+            recordingTitle(candidate.name) == recordingTitle(name) && artists(candidate.artist.orEmpty()) == expectedArtists &&
+                // 缺失时长不能仅凭同名自动换源，留给用户手动选择其他版本。
+                (duration != null && duration > 0 && candidate.durationMs != null && candidate.durationMs > 0 &&
+                    abs(candidate.durationMs - duration * 1000) <= 3_000)
         }.sortedByDescending { normalize(it.album.orEmpty()) == album && album.isNotEmpty() }
             .groupBy { it.platform }.values.flatMap { it.take(2) }
             .map { it.toTrackRef(ref.sourceId, ref.quality).copy(qualityExplicit = ref.qualityExplicit) }
@@ -48,6 +50,10 @@ class CrossPlatformTrackMatcher(private val search: OnlineSearchService) : Onlin
 
     private fun artists(value: String): Set<String> = value.split(Regex("[/、,，&;；]+"))
         .map(::normalize).filter { it.isNotEmpty() }.toSet()
+
+    private fun recordingTitle(value: String): String = normalize(value
+        .replace('（', '(').replace('）', ')')
+        .replace(Regex("\\((?:原唱[:： ].*?|(?:电视剧|电影|影视).*?(?:主题曲|片尾曲|插曲))\\)"), ""))
 
     private fun normalize(value: String): String = value.lowercase()
         .replace('（', '(').replace('）', ')').filter { it.isLetterOrDigit() }

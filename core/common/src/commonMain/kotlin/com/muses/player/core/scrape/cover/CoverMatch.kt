@@ -40,7 +40,7 @@ class CoverMatcher(
 
     private val providers: List<CoverProvider> = providers
 
-    suspend fun match(query: OnlineCoverQuery): OnlineCoverMatchResult {
+    suspend fun match(query: OnlineCoverQuery, rejectedUrls: Set<String> = emptySet()): OnlineCoverMatchResult {
         val title = query.title.trim()
         if (title.isEmpty()) {
             return OnlineCoverMatchResult.Fail(OnlineCoverMatchFailReason.NO_MATCH)
@@ -48,7 +48,7 @@ class CoverMatcher(
 
         val queryKey = buildQueryKey(query)
         val cached = negativeCache.get(query.songId)
-        if (cached != null && cached.queryKey == queryKey && cached.expiresAt > platformNowMs()) {
+        if (rejectedUrls.isEmpty() && cached != null && cached.queryKey == queryKey && cached.expiresAt > platformNowMs()) {
             return OnlineCoverMatchResult.Fail(OnlineCoverMatchFailReason.NO_MATCH)
         }
 
@@ -57,7 +57,7 @@ class CoverMatcher(
         for (provider in providers) {
             try {
                 val remoteUrl = provider.searchCoverUrl(query)
-                if (!remoteUrl.isNullOrEmpty() && HTTPS_URL_PREFIX.containsMatchIn(remoteUrl)) {
+                if (!remoteUrl.isNullOrEmpty() && remoteUrl !in rejectedUrls && HTTPS_URL_PREFIX.containsMatchIn(remoteUrl)) {
                     return OnlineCoverMatchResult.Ok(remoteUrl = remoteUrl, source = provider.id)
                 }
             } catch (e: CancellationException) {
@@ -70,7 +70,7 @@ class CoverMatcher(
 
         // 仅 NO_MATCH 写入负缓存；NETWORK（含 429）不入缓存以支持限流后重试（由限流器控频）
         val failReason = if (sawNetworkError) OnlineCoverMatchFailReason.NETWORK else OnlineCoverMatchFailReason.NO_MATCH
-        if (failReason == OnlineCoverMatchFailReason.NO_MATCH) {
+        if (failReason == OnlineCoverMatchFailReason.NO_MATCH && rejectedUrls.isEmpty()) {
             negativeCache.put(
                 query.songId,
                 NegativeCache.NegativeEntry(

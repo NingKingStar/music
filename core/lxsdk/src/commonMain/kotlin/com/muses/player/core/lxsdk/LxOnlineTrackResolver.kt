@@ -85,6 +85,11 @@ class LxOnlineTrackResolver(
         return finalized
     }
 
+    override fun invalidateReference(ref: OnlineTrackRef) {
+        val identity = OnlineTrackIdentity.matchKeys(ref).firstOrNull() ?: return
+        reuseCache.invalidatePrefix(identity + "|")
+    }
+
     override fun invalidatePlayableUrl(url: String) {
         reuseCache.invalidateUrl(url)
     }

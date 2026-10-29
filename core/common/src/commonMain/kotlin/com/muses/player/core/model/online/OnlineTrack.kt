@@ -134,6 +134,9 @@ interface OnlineTrackResolver {
      */
     fun invalidatePlayableUrl(url: String) {}
 
+    /** 用户重试原来源时，只清理该歌曲的短期解析结果。 */
+    fun invalidateReference(ref: OnlineTrackRef) {}
+
     /**
      * 地址已被证实无法播放（例如播放器无法解封装）。与 [invalidatePlayableUrl] 不同，
      * 实现方应在一个有界时间内拒绝再次使用该地址，促使下一次解析尝试其他脚本/档位。

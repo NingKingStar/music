@@ -20,6 +20,7 @@ val playerModule = module {
             getOrNull<OnlineTrackMetadataResolver>() ?: NoOpOnlineTrackMetadataResolver,
             getOrNull<LyricsMatcher>(),
             getOrNull<CoverMatcher>(),
+            getOrNull<com.muses.player.core.model.online.OnlineTrackResolver>(),
         )
     }
     viewModel { QueueViewModel(get()) }
