@@ -333,7 +333,13 @@ class LxScriptRepository(
         val failuresMutex = Mutex()
         val downloadAttempts = mutableListOf<Triple<LxQuality, LxScriptEngine, String>>()
         val availability = coroutineScope {
-            candidates.map { async { it.ensureLoaded(crypto, httpClient, requestTimeoutMs) } }.awaitAll()
+            candidates.map { async {
+                val mark = kotlin.time.TimeSource.Monotonic.markNow()
+                val context = com.muses.player.core.data.diagnostics.Diagnostics.correlation()
+                com.muses.player.core.data.diagnostics.Diagnostics.record("script_init_start", context + mapOf("script" to com.muses.player.core.data.diagnostics.Diagnostics.anonymous(it.scriptId)))
+                try { it.ensureLoaded(crypto, httpClient, requestTimeoutMs) }
+                finally { com.muses.player.core.data.diagnostics.Diagnostics.record("script_init_end", context + mapOf("script" to com.muses.player.core.data.diagnostics.Diagnostics.anonymous(it.scriptId), "elapsed_ms" to mark.elapsedNow().inWholeMilliseconds.toString())) }
+            } }.awaitAll()
         }
         for ((script, loaded) in candidates.zip(availability)) {
             // 懒加载：加载失败的脚本跳过并记录（不阻断其它脚本）
@@ -365,6 +371,11 @@ class LxScriptRepository(
                 val results = Channel<LxMusicUrl?>(Channel.UNLIMITED)
                 val jobs = attempts.map { (effectiveQuality, engine, name) ->
                     launch(Dispatchers.Default) {
+                        val context = com.muses.player.core.data.diagnostics.Diagnostics.correlation()
+                        val script = com.muses.player.core.data.diagnostics.Diagnostics.anonymous(candidates.firstOrNull { it.engine === engine }?.scriptId ?: name)
+                        val started = kotlin.time.TimeSource.Monotonic.markNow()
+                        var outcome = "failure"
+                        com.muses.player.core.data.diagnostics.Diagnostics.record("script_request_start", context + mapOf("script" to script, "platform" to platform, "quality" to effectiveQuality.key))
                         var result: LxMusicUrl? = null
                         try {
                             result = withTimeoutOrNull(requestTimeoutMs) {
@@ -372,10 +383,12 @@ class LxScriptRepository(
                                     .takeIf { acceptUrl(it.url) }
                                     ?.copy(quality = effectiveQuality, sourceName = name)
                             }
-                        } catch (e: CancellationException) { throw e }
+                            if (result != null) outcome = "success"
+                        } catch (e: CancellationException) { outcome = "cancelled"; throw e }
                         catch (e: Exception) {
                             failuresMutex.withLock { failures += "$name: ${e.message}" }
                         } finally {
+                            com.muses.player.core.data.diagnostics.Diagnostics.record("script_request_end", context + mapOf("script" to script, "platform" to platform, "quality" to effectiveQuality.key, "result" to outcome, "elapsed_ms" to started.elapsedNow().inWholeMilliseconds.toString()))
                             results.trySend(result)
                         }
                     }

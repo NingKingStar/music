@@ -39,7 +39,8 @@ class CrossPlatformTrackMatcher(private val search: OnlineSearchService) : Onlin
             } }.flatMap { it.await() }
         }
         return results.filter { candidate ->
-            recordingTitle(candidate.name) == recordingTitle(name) && artists(candidate.artist.orEmpty()) == expectedArtists &&
+            recordingTitle(candidate.name) == recordingTitle(name) &&
+                versions(candidate.name, candidate.album.orEmpty()) == versions(name, info.str("album").orEmpty()) && artists(candidate.artist.orEmpty()) == expectedArtists &&
                 // 缺失时长不能仅凭同名自动换源，留给用户手动选择其他版本。
                 (duration != null && duration > 0 && candidate.durationMs != null && candidate.durationMs > 0 &&
                     abs(candidate.durationMs - duration * 1000) <= 3_000)
@@ -50,6 +51,12 @@ class CrossPlatformTrackMatcher(private val search: OnlineSearchService) : Onlin
 
     private fun artists(value: String): Set<String> = value.split(Regex("[/、,，&;；]+"))
         .map(::normalize).filter { it.isNotEmpty() }.toSet()
+
+    private fun versions(title: String, album: String): Set<Int> {
+        val text = title + " " + album
+        return listOf("\\blive\\b|现场|演唱会", "instrumental|karaoke|伴奏|纯音乐", "remix|混音", "sped.?up|加速", "acoustic|不插电", "试听|片段|铃声|radio.?edit")
+            .mapIndexedNotNull { index, marker -> index.takeIf { Regex(marker, RegexOption.IGNORE_CASE).containsMatchIn(text) } }.toSet()
+    }
 
     private fun recordingTitle(value: String): String = normalize(value
         .replace('（', '(').replace('）', ')')

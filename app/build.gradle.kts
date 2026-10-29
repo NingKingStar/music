@@ -5,6 +5,11 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val releaseVersion = java.util.Properties().apply {
+    rootProject.file("release.properties").inputStream().use { load(it) }
+}
+val releaseSigningFile = providers.gradleProperty("android.injected.signing.store.file").orNull
+
 android {
     namespace = "com.muses.player"
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -13,10 +18,13 @@ android {
         // 卡拉OK 歌词渲染依赖 Compose BlurEffect（API 31+ 才生效），下限由 26 抬到 29
         minSdk = libs.versions.minSdkApp.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        // CI 发布经 -Pandroid.injected.version* 注入（tag 名/提交总数）；
+        // 本地与 CI 共用正式版本号；命令行可覆盖测试构建版本。
         // AGP 9 中 DSL 显式赋值会覆盖 injected 属性，故必须在此主动读取
-        versionCode = (findProperty("android.injected.versionCode") as String?)?.toInt() ?: 1
-        versionName = (findProperty("android.injected.versionName") as String?) ?: "0.5.1"
+        versionCode = (findProperty("android.injected.versionCode") as String?)?.toInt() ?: releaseVersion.getProperty("versionCode").toInt()
+        versionName = (findProperty("android.injected.versionName") as String?) ?: releaseVersion.getProperty("versionName")
+        val diagnosticCommit = providers.gradleProperty("diagnosticCommit").orNull
+            ?.takeIf { it.matches(Regex("[a-f0-9]{7,40}")) } ?: "unknown"
+        buildConfigField("String", "DIAGNOSTIC_COMMIT", "\"$diagnosticCommit\"")
     }
 
     // 语言资源过滤（zh-rCN/en）：AGP 9.4 趡牌 defaultConfig.resourceConfigurations，迁至 androidResources.localeFilters
@@ -39,8 +47,17 @@ android {
         }
     }
 
+    signingConfigs {
+        if (releaseSigningFile != null) create("officialRelease") {
+            storeFile = file(releaseSigningFile)
+            storePassword = providers.gradleProperty("android.injected.signing.store.password").get()
+            keyAlias = providers.gradleProperty("android.injected.signing.key.alias").get()
+            keyPassword = providers.gradleProperty("android.injected.signing.key.password").get()
+        }
+    }
     buildTypes {
         release {
+            if (releaseSigningFile != null) signingConfig = signingConfigs.getByName("officialRelease")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(

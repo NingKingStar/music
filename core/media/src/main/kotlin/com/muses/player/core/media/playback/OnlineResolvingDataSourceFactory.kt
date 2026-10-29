@@ -1,5 +1,6 @@
 package com.muses.player.core.media.playback
 
+import com.muses.player.core.data.diagnostics.Diagnostics
 import android.net.Uri
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
@@ -91,13 +92,31 @@ class OnlineResolvingDataSourceFactory(
         var deliveredBytes = 0L
         /** 当前打开的资源地址（失败时用于让解析复用失效）。 */
         var openedUri: String? = null
+        val creationCandidate = Diagnostics.context()
+        var diagnosticTrack: String? = null
+        var correlation = mapOf("session" to "未知", "song" to "未知")
+        var request = Diagnostics.anonymous(java.util.UUID.randomUUID().toString())
+        var openedAt = 0L
+        var requestBytes = 0L
+        var expectedBytes = -1L
+        var eof = false
+        fun diagnostic(event: String, values: Map<String, String> = emptyMap()) {
+            Diagnostics.record(event, correlation + mapOf("request" to request) + values)
+        }
         val upstream = upstreamFactory.createDataSource()
         val guarded = object : DataSource by upstream {
             override fun open(dataSpec: DataSpec): Long {
                 // 先记下本次真正尝试的地址：打开失败时能精确让对应直链失效。
                 openedUri = dataSpec.uri.toString()
+                openedAt = System.nanoTime()
+                requestBytes = 0L
+                eof = false
+                diagnostic("data_open_start", mapOf("range_start" to dataSpec.position.toString(), "range_length" to dataSpec.length.toString(),
+                    "resource" to Diagnostics.anonymous(dataSpec.uri.toString()), "host" to (dataSpec.uri.host ?: "未知"), "actual_network" to "未知", "dns_ms" to "未知", "connect_ms" to "未知", "tls_ms" to "未知"))
                 return try {
                     upstream.open(dataSpec).also {
+                        expectedBytes = it
+                        diagnostic("data_open_result", mapOf("result" to "success", "length" to it.toString(), "elapsed_ms" to ((System.nanoTime()-openedAt)/1_000_000).toString(), "http" to "未知", "response_ms" to "未知"))
                         val trackUri = cachedTrack
                         if (trackUri != null) onOpenedUrl(trackUri, dataSpec.uri.toString())
                         val ref = OnlineTrackRef.parse(trackUri)
@@ -107,6 +126,7 @@ class OnlineResolvingDataSourceFactory(
                         }
                     }
                 } catch (e: IOException) {
+                    diagnostic("data_open_result", mapOf("result" to "failure", "code" to e.javaClass.name.hashCode().toString(), "http" to ((e as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.responseCode?.toString() ?: "未知")))
                     // 地址已证实不可用：让短期解析复用丢弃它，下一次重新解析。
                     resolver.invalidatePlayableUrl(openedUri.orEmpty())
                     val failedLocal = cachedUrl?.takeIf(::isLocalUrl)
@@ -126,9 +146,14 @@ class OnlineResolvingDataSourceFactory(
 
             override fun read(buffer: ByteArray, offset: Int, length: Int): Int = try {
                 val read = upstream.read(buffer, offset, length)
-                if (read > 0) deliveredBytes += read
+                if (read > 0) { deliveredBytes += read; requestBytes += read }
+                if (read == -1 && !eof) {
+                    eof = true
+                    diagnostic("data_eof", mapOf("bytes" to requestBytes.toString(), "length" to expectedBytes.toString()))
+                }
                 read
             } catch (e: IOException) {
+                diagnostic("data_read_error", mapOf("bytes" to requestBytes.toString(), "length" to expectedBytes.toString(), "code" to e.javaClass.name.hashCode().toString()))
                 openedUri?.let(resolver::invalidatePlayableUrl)
                 rejectLocal(cachedUrl)
                 cachedTrack = null
@@ -136,12 +161,26 @@ class OnlineResolvingDataSourceFactory(
                 cachedResult = null
                 throw e
             }
+            override fun close() {
+                try { upstream.close() }
+                finally { diagnostic("data_close", mapOf("bytes" to requestBytes.toString(), "elapsed_ms" to (if (openedAt == 0L) "未知" else ((System.nanoTime()-openedAt)/1_000_000).toString()))) }
+            }
         }
         return ResolvingDataSource(guarded) { dataSpec ->
             val trackUri = dataSpec.uri.toString()
+            if (diagnosticTrack != trackUri) {
+                diagnosticTrack = trackUri
+                correlation = Diagnostics.contextForTrack(trackUri, creationCandidate)
+            }
+            request = Diagnostics.anonymous(java.util.UUID.randomUUID().toString())
+            openedAt = 0L
+            requestBytes = 0L
+            expectedBytes = -1L
             val ref = OnlineTrackRef.parse(trackUri) ?: return@ResolvingDataSource dataSpec
+            diagnostic("resolve_start", mapOf("platform" to ref.platform, "requested_quality" to ref.quality.orEmpty()))
             val reusable = cachedUrl?.takeIf { cachedTrack == trackUri }
             if (reusable != null) {
+                diagnostic("resolve_result", mapOf("result" to "success", "cache" to "true"))
                 return@ResolvingDataSource dataSpec.buildUpon().setUri(Uri.parse(reusable))
                     .setKey(onlineCacheKey(reusable)).build()
                     .withRequestHeaders(OnlinePlaybackHttp.requestHeaders(dataSpec.httpRequestHeaders))
@@ -150,7 +189,7 @@ class OnlineResolvingDataSourceFactory(
             var findMs = 0L
             var localHit = false
             val resolved = try {
-                runBlocking { withTimeoutOrNull(resolveTimeoutMs) {
+                runBlocking { Diagnostics.withCorrelation(correlation + mapOf("request" to request)) { withTimeoutOrNull(resolveTimeoutMs) {
                     val findStarted = TimeSource.Monotonic.markNow()
                     val local = findDownloaded(ref)?.takeUnless { location ->
                         rejectedDownloads[location]?.let { now() - it < 30_000L } == true
@@ -159,18 +198,21 @@ class OnlineResolvingDataSourceFactory(
                     localHit = local != null
                     local?.let { com.muses.player.core.model.online.OnlinePlayableUrl(it, sourceName = "本地下载") }
                         ?: resolver.resolve(ref)
-                } }
+                } } }
             } catch (e: InterruptedException) {
+                diagnostic("resolve_result", mapOf("result" to "cancelled"))
                 // Media3 取消加载会中断线程；保留中断语义，不作为音源故障上报。
                 Thread.currentThread().interrupt()
                 throw InterruptedIOException("在线直链加载已中断").apply { initCause(e) }
             } catch (e: CancellationException) {
                 throw InterruptedIOException("在线直链加载已取消").apply { initCause(e) }
             } catch (e: Exception) {
+                diagnostic("resolve_result", mapOf("result" to "failure", "code" to e.javaClass.name.hashCode().toString()))
                 onResolveError(trackUri, e)
                 throw OnlineResolveFailedException("在线音源直链解析失败：${e.message ?: "未知错误"}", e)
             }
             if (resolved == null) {
+                diagnostic("resolve_result", mapOf("result" to "failure", "reason" to "resolve"))
                 val timeout = IOException("在线音源直链解析超时（${resolveTimeoutMs} ms）")
                 onResolveError(trackUri, timeout)
                 throw OnlineResolveFailedException(timeout.message ?: "解析超时", timeout)
@@ -184,6 +226,7 @@ class OnlineResolvingDataSourceFactory(
             cachedUrl = resolved.url
             cachedResult = resolved
             val elapsed = startedAt.elapsedNow().inWholeMilliseconds
+            diagnostic("resolve_result", mapOf("result" to "success", "elapsed_ms" to elapsed.toString(), "local" to localHit.toString(), "quality" to resolved.quality.orEmpty()) + resolved.timings.mapKeys { "timing_" + it.key }.mapValues { it.value.toString() })
             onResolveTiming(
                 trackUri, elapsed, localHit,
                 resolved.timings + mapOf("findDownloaded" to findMs, "dataSource" to elapsed),

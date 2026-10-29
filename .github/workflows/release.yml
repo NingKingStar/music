@@ -1,9 +1,12 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '已推送的版本标签，例如 v0.9.7；只生成发布草稿'
+        required: true
+        type: string
 
 jobs:
   # 安卓双渠道签名 APK：ubuntu 构建，产物经 artifact 交给 release 汇总
@@ -16,6 +19,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.tag }}
           fetch-depth: 0
 
       - name: Set up JDK 21
@@ -29,29 +33,38 @@ jobs:
       - name: Extract version from tag
         id: version
         run: |
-          TAG=${GITHUB_REF#refs/tags/}
+          TAG="$RELEASE_TAG"
           VERSION=${TAG#v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "tag=$TAG" >> $GITHUB_OUTPUT
+          CONFIG_VERSION=$(sed -n 's/^versionName=//p' release.properties | tr -d '\r')
+          VERSION_CODE=$(sed -n 's/^versionCode=//p' release.properties | tr -d '\r')
+          test "$VERSION" = "$CONFIG_VERSION" || { echo "标签与正式版本配置不一致"; exit 1; }
+          [[ "$VERSION_CODE" =~ ^[0-9]+$ ]] || exit 1
+          test "$VERSION_CODE" -ge 100131 || exit 1
+          echo "code=$VERSION_CODE" >> $GITHUB_OUTPUT
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
 
       - name: Decode keystore
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > ${{ github.workspace }}/muses-release.keystore
 
       # 签名与版本号经 AGP injected properties 注入：
-      # versionName=tag；versionCode=提交总数（单调递增，须不低于旧 Capacitor 版）
+      # versionName=tag；versionCode=release.properties 显式配置（发版时递增）
       # 双渠道一条命令构建：共享配置阶段与 compile 任务，较两次独立构建显著提速
       - name: Build signed APKs (muses + miui)
         run: |
           chmod +x gradlew
-          VERSION_CODE=$(git rev-list --count HEAD)
+          VERSION_CODE=${{ steps.version.outputs.code }}
           ./gradlew :app:assembleMusesRelease :app:assembleMiuiRelease \
             -Pandroid.injected.signing.store.file=${{ github.workspace }}/muses-release.keystore \
             -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} \
             -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} \
             -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }} \
             -Pandroid.injected.versionName=${{ steps.version.outputs.version }} \
-            -Pandroid.injected.versionCode=$VERSION_CODE
+            -Pandroid.injected.versionCode=$VERSION_CODE \
+            -PdiagnosticCommit=$GITHUB_SHA
 
       - name: Rename muses APK
         run: |
@@ -60,6 +73,16 @@ jobs:
       - name: Rename miui APK
         run: |
           mv app/build/outputs/apk/miui/release/app-miui-release.apk              muses-v${{ steps.version.outputs.version }}-mi.apk
+
+      - name: 核验签名并生成校验值
+        run: |
+          BT=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          for APK in muses-v*.apk; do
+            "$BT/apksigner" verify --verbose --print-certs "$APK" | tee signature.txt
+            grep -qi '442377d8ec4a56b9794dd36e1e2f8768d764f83280506e0d86371f71eb8fda7d' signature.txt
+            "$BT/zipalign" -c -P 16 4 "$APK"
+          done
+          sha256sum muses-v*.apk > SHA256SUMS.txt
 
       # 说明由安卓 job 生成（有 checkout 可读 changelog）；MSI 文件名是确定性的
       - name: Read changelog
@@ -75,7 +98,7 @@ jobs:
           echo "### 构建产物" >> release_body.md
           echo "- \`muses-v${{ steps.version.outputs.version }}.apk\` — 安卓端（Compose Multiplatform 双端共享界面，包名 \`com.muses.player\`）" >> release_body.md
           echo "- \`muses-v${{ steps.version.outputs.version }}-mi.apk\` — 安卓端 MIUI 定制包（包名 \`com.miui.player\`）" >> release_body.md
-          echo "- \`Muses-v${{ steps.version.outputs.version }}.msi\` — Windows 桌面端（Compose Multiplatform 双端共享界面 + jpackage）" >> release_body.md
+          echo "- \`Muses-v${{ steps.version.outputs.version }}.msi\` — Windows 桌面端（构建成功后补充）" >> release_body.md
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4
@@ -85,6 +108,7 @@ jobs:
             muses-v${{ steps.version.outputs.version }}.apk
             muses-v${{ steps.version.outputs.version }}-mi.apk
             release_body.md
+            SHA256SUMS.txt
 
   # Windows 桌面端 MSI（Compose Multiplatform / jpackage），与安卓并行
   build-windows:
@@ -95,6 +119,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -165,10 +191,12 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $TAG = "${{ github.ref }}" -replace '^refs/tags/', ''
+          $TAG = $env:RELEASE_TAG
           $VERSION = $TAG -replace '^v', ''
           "version=$VERSION" >> $env:GITHUB_OUTPUT
           "tag=$TAG" >> $env:GITHUB_OUTPUT
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
 
       # jpackage 需完整 JDK（含 jpackage.exe）：javaHome 经 MUSES_DESKTOP_JDK 指向
       # runner 的 JDK（setup-java 已导出 JAVA_HOME），本机硬编码路径仅作本地回落；
@@ -206,9 +234,9 @@ jobs:
           name: muses-windows
           path: Muses-v${{ steps.version.outputs.version }}.msi
 
-  # 汇总发版：两端构建都成功后创建唯一 Release
+  # 安卓构建成功先准备草稿；Windows 失败不阻塞 APK 下载附件。
   release:
-    needs: [build-android, build-windows]
+    needs: [build-android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -223,10 +251,28 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: ${{ github.ref_name }}
-          tag_name: ${{ github.ref_name }}
+          draft: true
+          name: ${{ inputs.tag }}
+          tag_name: ${{ inputs.tag }}
           body_path: release-assets/muses-android/release_body.md
           fail_on_unmatched_files: true
           files: |
             release-assets/**/*.apk
-            release-assets/**/*.msi
+            release-assets/**/SHA256SUMS.txt
+
+  release-windows:
+    needs: [build-windows, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: muses-windows
+          path: windows-assets
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          tag_name: ${{ inputs.tag }}
+          fail_on_unmatched_files: true
+          files: windows-assets/*.msi

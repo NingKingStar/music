@@ -11,7 +11,8 @@ class CrossPlatformTrackMatcherTest {
     @Test fun `只移除宣传文字且不自动采用未知时长或不同版本`() = runTest {
         val matcher = CrossPlatformTrackMatcher(OnlineSearchService(listOf(provider("tx") {
             listOf(song("promo", name = "晴天（电视剧某某主题曲）"), song("unknown").copy(durationMs = null),
-                song("live", name = "晴天 Live"), song("wrong-artist", artist = "翻唱歌手"))
+                song("live", name = "晴天 Live"), song("wrong-artist", artist = "翻唱歌手"),
+                song("hidden-live").copy(album = "巡回演唱会"), song("instrumental").copy(album = "伴奏版"))
         })))
         val ref = OnlineTrackRef("wy", buildMusicInfo("id" to "1", name = "晴天", singer = "周杰伦", durationSec = 269), "online")
         val matches = matcher.candidates(ref, listOf("tx"))

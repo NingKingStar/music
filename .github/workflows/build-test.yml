@@ -39,14 +39,16 @@ jobs:
       - name: Build signed APKs (muses + miui)
         run: |
           chmod +x gradlew
-          VERSION_CODE=$(git rev-list --count HEAD)
+          VERSION_CODE=$(sed -n 's/^versionCode=//p' release.properties | tr -d '\r')
+          VERSION_NAME=$(sed -n 's/^versionName=//p' release.properties | tr -d '\r')
           ./gradlew :app:assembleMusesRelease :app:assembleMiuiRelease \
             -Pandroid.injected.signing.store.file=${{ github.workspace }}/muses-release.keystore \
             -Pandroid.injected.signing.store.password=${{ secrets.KEYSTORE_PASSWORD }} \
             -Pandroid.injected.signing.key.alias=${{ secrets.KEY_ALIAS }} \
             -Pandroid.injected.signing.key.password=${{ secrets.KEY_PASSWORD }} \
-            -Pandroid.injected.versionName=0.4.9-test \
-            -Pandroid.injected.versionCode=$VERSION_CODE
+            -Pandroid.injected.versionName=$VERSION_NAME-test \
+            -Pandroid.injected.versionCode=$VERSION_CODE \
+            -PdiagnosticCommit=$GITHUB_SHA
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
