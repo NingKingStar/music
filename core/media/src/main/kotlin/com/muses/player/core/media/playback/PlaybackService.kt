@@ -321,6 +321,9 @@ class PlaybackService : MediaSessionService() {
         setMediaNotificationProvider(notificationProvider)
 
         // 播放持久化（任务 08-25-native-playback-persistence / P1）
+        configWriter = PlaybackConfigWriter(serviceScope, { playbackStateRepository.writeConfig(it) }) {
+            errorLogStore.log(ErrorLogStore.Level.WARN, "Playback", "播放模式保存失败", it)
+        }
         player.addListener(persistenceListener)
         player.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
             override fun onAudioPositionAdvancing(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, playoutStartSystemTimeMs: Long) {
@@ -863,9 +866,16 @@ class PlaybackService : MediaSessionService() {
             fields + mapOf("song" to (songId?.let { com.muses.player.core.data.diagnostics.Diagnostics.anonymous(it) } ?: "未知"), "session" to "未知"))
     }
 
+    private var configWriter: PlaybackConfigWriter? = null
+    private fun persistPlaybackConfig() {
+        val player = mediaSession?.player ?: return
+        configWriter?.save(playbackConfigFromState(player.repeatMode, player.shuffleModeEnabled))
+    }
     private var playerIntentGeneration = 0L
     private var playerTimelineGeneration = 0L
     private val persistenceListener = object : Player.Listener {
+        override fun onRepeatModeChanged(repeatMode: Int) { persistPlaybackConfig() }
+        override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) { persistPlaybackConfig() }
         override fun onPlaybackSuppressionReasonChanged(playbackSuppressionReason: Int) {
             recordPlayback("playback_suppression", mapOf("reason" to playbackSuppressionReason.toString()))
             errorLogStore.log(ErrorLogStore.Level.WARN, "Playback", "音频焦点/播放抑制变化：reason=" + playbackSuppressionReason)
