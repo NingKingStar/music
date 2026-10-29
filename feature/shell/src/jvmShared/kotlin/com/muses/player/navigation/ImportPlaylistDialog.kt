@@ -6,7 +6,7 @@ import com.muses.player.core.search.provider.ImportedPlaylist
 import com.muses.player.core.search.provider.PlaylistImportService
 import com.muses.player.core.search.provider.parsePlaylistAddress
 import com.muses.player.core.search.http.SearchHttp
-import com.muses.player.core.ui.components.MusesDialog
+import com.muses.player.core.ui.components.MusesFormSheet
 import com.muses.player.core.ui.components.MusesTextField
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
@@ -26,11 +26,11 @@ internal fun ImportPlaylistDialog(store: UserPlaylistStore, onDismiss: () -> Uni
     val scope = rememberCoroutineScope()
     val metadataManager = koinInject<PlaylistMetadataManager>()
     val loaded = playlist
-    MusesDialog(
+    MusesFormSheet(
         title = if (loaded == null) "导入歌单" else "确认导入",
         message = if (loaded == null) "粘贴网易云音乐或 QQ 音乐公开歌单的完整分享链接。" else "共 ${loaded.songs.size} 首，其中 ${loaded.songs.count { com.muses.player.core.search.needsSongMetadata(it.toSong("online")) }} 首将在导入后自动完善信息。播放可用性未检测；不自动下载。",
         onDismiss = { if (!busy) onDismiss() }, dismissText = "取消",
-        confirmText = if (loaded == null) "读取歌单" else "导入歌单",
+        confirmText = if (loaded == null) "预览歌单" else "导入歌单",
         confirmEnabled = if (loaded == null) link.isNotBlank() else name.isNotBlank(), confirmLoading = busy,
         onConfirm = {
             if (!busy) {

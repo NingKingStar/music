@@ -27,6 +27,8 @@ private class AndroidDownloadStorage(
     override val cacheDirectory = File(context.cacheDir, "downloads")
     override val stagingDirectory = File(context.filesDir, "pending-downloads")
     private val resolver get() = context.contentResolver
+    // 共存测试包默认下载到单独目录，正式版仍沿用原位置。
+    private val defaultFolder get() = if (context.packageName == "com.muses.player.preview") "Muses-界面测试" else "Muses"
 
     override suspend fun deleteSaved(location: String): Boolean {
         require(location.startsWith("content://")) { "无法安全确认文件位置，请在文件管理器中处理" }
@@ -61,7 +63,7 @@ private class AndroidDownloadStorage(
         val configured = settings.downloadDeviceDirectory.first().trim()
         val physicalDirectory = if (target.kind == DownloadTargetKind.DEVICE) {
             configured.takeIf { it.isNotEmpty() }?.let(::File)
-                ?: File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Muses")
+                ?: File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), defaultFolder)
         } else File(target.directory)
         val parent = when {
             target.kind == DownloadTargetKind.LOCAL -> findAuthorizedDirectory(physicalDirectory)
@@ -94,7 +96,7 @@ private class AndroidDownloadStorage(
                 resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, ContentValues().apply {
                     put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
                     put(MediaStore.MediaColumns.MIME_TYPE, mime)
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Muses")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/$defaultFolder")
                     put(MediaStore.MediaColumns.IS_PENDING, 1)
                 }) ?: error("无法创建下载文件")
             }

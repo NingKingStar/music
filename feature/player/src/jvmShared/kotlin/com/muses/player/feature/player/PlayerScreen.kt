@@ -163,18 +163,6 @@ fun PlayerScreen(
     val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
     val position by viewModel.position.collectAsStateWithLifecycle()
     val duration by viewModel.duration.collectAsStateWithLifecycle()
-    var showPlaybackMode by remember { mutableStateOf(false) }
-    val modeConfig by viewModel.playback.playerConfig.collectAsStateWithLifecycle()
-    if (showPlaybackMode) com.muses.player.core.ui.components.MusesActionsSheet(
-        opened = true, onDismiss = { showPlaybackMode = false }, label = "播放模式",
-        items = com.muses.player.core.model.playback.PlaybackMode.entries.map { mode ->
-            com.muses.player.core.ui.components.MusesActionItem(mode.label + if (com.muses.player.core.model.playback.PlaybackMode.from(modeConfig) == mode) "（当前）" else "") {
-                viewModel.selectPlaybackMode(mode)
-                showPlaybackMode = false
-                com.muses.player.core.ui.components.MusesSnackbar.show(mode.label)
-            }
-        },
-    )
     val repeatMode by viewModel.repeatMode.collectAsStateWithLifecycle()
     val shuffleModeEnabled by viewModel.shuffleModeEnabled.collectAsStateWithLifecycle()
     val parsedLines by viewModel.parsedLines.collectAsStateWithLifecycle()
@@ -261,6 +249,7 @@ fun PlayerScreen(
     // 外层：m-popup 背景透明（对齐 .player-page__popup background: transparent !important）——
     // 无 scrim 黑化，drag-layer 下滑时直接漏出底下列表（原版 1:1）
     CompositionLocalProvider(
+        com.muses.player.core.ui.components.LocalSelectPlaybackMode provides viewModel::selectPlaybackMode,
         com.muses.player.core.ui.components.LocalPlayerCoverFailure provides viewModel::onCoverLoadFailed,
         LocalPlaybackSourceDetails provides { showSourceDetails = true },
         LocalPlayerContentColor provides if (coverContentColorEnabled) contentColor else Color.White,
@@ -423,7 +412,11 @@ fun PlayerScreen(
                     onPlayPause = { viewModel.playPause() },
                     onPrevious = { viewModel.skipToPrevious() },
                     onNext = { viewModel.skipToNext() },
-                    onToggleRepeat = { showPlaybackMode = true },
+                    onToggleRepeat = {
+                        val modes = com.muses.player.core.model.playback.PlaybackMode.entries
+                        val current = com.muses.player.core.model.playback.PlaybackMode.from(viewModel.playback.playerConfig.value)
+                        viewModel.selectPlaybackMode(modes[(current.ordinal + 1) % modes.size])
+                    },
                     onToggleShuffle = { viewModel.toggleShuffle() },
                     onOpenQueue = onOpenQueue,
                     onOpenEditMeta = onOpenEditMeta,
@@ -460,7 +453,11 @@ fun PlayerScreen(
                     onPlayPause = { viewModel.playPause() },
                     onPrevious = { viewModel.skipToPrevious() },
                     onNext = { viewModel.skipToNext() },
-                    onToggleRepeat = { showPlaybackMode = true },
+                    onToggleRepeat = {
+                        val modes = com.muses.player.core.model.playback.PlaybackMode.entries
+                        val current = com.muses.player.core.model.playback.PlaybackMode.from(viewModel.playback.playerConfig.value)
+                        viewModel.selectPlaybackMode(modes[(current.ordinal + 1) % modes.size])
+                    },
                     onToggleShuffle = { viewModel.toggleShuffle() },
                     onOpenQueue = onOpenQueue,
                     onOpenEditMeta = onOpenEditMeta,
@@ -1201,12 +1198,7 @@ private fun TabletBottomBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                MusesIconButton(
-                    onClick = onToggleRepeat,
-                    imageVector = when { shuffleEnabled -> TablerIcons.Shuffle; repeatMode == 1 -> TablerIcons.RepeatOne; repeatMode == 0 -> TablerIcons.FormatListBulleted; else -> TablerIcons.Repeat },
-                    contentDescription = "播放模式：" + when { shuffleEnabled -> "随机播放"; repeatMode == 1 -> "单曲循环"; repeatMode == 0 -> "顺序播放"; else -> "列表循环" },
-                    tint = contentColor.copy(alpha = 0.8f),
-                )
+                com.muses.player.core.ui.components.PlaybackModeButton(repeatMode, shuffleEnabled, onToggleRepeat)
             }
             PlayerControls(
                 isPlaying = isPlaying,

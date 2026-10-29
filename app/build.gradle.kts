@@ -43,6 +43,10 @@ android {
             dimension = "channel"
             applicationId = "com.muses.player"
         }
+        create("preview") {
+            dimension = "channel"
+            applicationId = "com.muses.player.preview"
+        }
         create("miui") {
             dimension = "channel"
             applicationId = "com.miui.player"

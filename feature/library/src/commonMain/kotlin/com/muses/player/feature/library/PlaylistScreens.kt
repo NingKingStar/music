@@ -1,6 +1,13 @@
 package com.muses.player.feature.library
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import top.yukonga.miuix.kmp.basic.Icon
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.*
@@ -31,6 +38,7 @@ fun PlaylistsScreen(store: UserPlaylistStore, likedCount: Int, downloadedCount: 
     val playlists by store.playlists.collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
     var creating by remember { mutableStateOf(false) }
+    var showCreateMenu by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf<UserPlaylist?>(null) }
     var actions by remember { mutableStateOf<UserPlaylist?>(null) }
     var deleting by remember { mutableStateOf<UserPlaylist?>(null) }
@@ -39,7 +47,7 @@ fun PlaylistsScreen(store: UserPlaylistStore, likedCount: Int, downloadedCount: 
         modifier = Modifier.fillMaxSize(), containerColor = MiuixTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = { MusesTopBar("歌单", actions = {
-            MusesIconButton(onClick = { creating = true }, imageVector = TablerIcons.Add, contentDescription = "新建歌单")
+            MusesIconButton(onClick = { showCreateMenu = true }, imageVector = TablerIcons.Add, contentDescription = "新建或导入歌单")
         }) },
     ) { padding ->
         LazyColumn(
@@ -56,23 +64,32 @@ fun PlaylistsScreen(store: UserPlaylistStore, likedCount: Int, downloadedCount: 
             item(key = "heading") {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text("我的歌单", modifier = Modifier.weight(1f))
-                    MusesTextButton(text = "导入歌单", onClick = onImport)
-                    MusesTextButton(text = "新建歌单", onClick = { creating = true })
+                    Text("${playlists.size} 个", color = MiuixTheme.colorScheme.onBackgroundVariant)
                 }
             }
             if (playlists.isEmpty()) item(key = "empty") {
                 Text("还没有自建歌单。新建后，可通过歌曲右侧的三个点选择“添加到歌单”。", color = MiuixTheme.colorScheme.onBackgroundVariant)
             }
             items(playlists, key = { it.id }) { playlist ->
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Card(Modifier.weight(1f)) {
-                        BasicComponent(title = playlist.name, summary = "${playlist.tracks.size} 首", onClick = { onOpen(playlist.id) })
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                    .background(MiuixTheme.colorScheme.background).clickable { onOpen(playlist.id) }
+                    .padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    MusesCover(playlist.tracks.firstOrNull { !it.coverUri.isNullOrBlank() }?.coverUri, size = 52.dp)
+                    Column(Modifier.weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(playlist.name, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("${playlist.tracks.size} 首", color = MiuixTheme.colorScheme.onBackgroundVariant)
                     }
                     SongMoreButton(onClick = { actions = playlist })
                 }
             }
         }
     }
+    MusesActionsSheet(opened = showCreateMenu, onDismiss = { showCreateMenu = false }, label = "收集喜欢的音乐",
+        items = listOf(
+            MusesActionItem("新建歌单") { showCreateMenu = false; creating = true },
+            MusesActionItem("导入歌单") { showCreateMenu = false; onImport() },
+        ))
     MusesActionsSheet(
         opened = actions != null, onDismiss = { actions = null }, label = actions?.name ?: "歌单操作",
         items = listOf(
@@ -114,7 +131,7 @@ private fun PlaylistNameDialog(initial: String, title: String, onDismiss: () -> 
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-    MusesDialog(
+    MusesFormSheet(
         title = title, onDismiss = { if (!saving) onDismiss() },
         dismissText = "取消", confirmText = "保存", confirmEnabled = name.isNotBlank(), confirmLoading = saving,
         onConfirm = {
@@ -167,18 +184,30 @@ fun CollectionSongsScreen(
             actions = {
                 if (onRepairMetadata != null) MusesIconButton(onClick = { showMetadataActions = true },
                     imageVector = TablerIcons.MoreHorizontal, contentDescription = "歌单更多操作")
-                onDownloadAll?.let { download -> MusesTextButton(text = "全部下载", onClick = download, enabled = downloadAllEnabled) }
-                onManageDownloads?.let { manage -> MusesTextButton(text = "下载管理", onClick = manage) }
+
             },
             bottomContent = {
                 Column(Modifier.padding(horizontal = 16.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        MusesCover(songs.firstOrNull { !it.coverUri.isNullOrBlank() }?.coverUri, size = 84.dp)
+                        Column(Modifier.weight(1f).padding(start = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(title, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text("${songs.size} 首", color = MiuixTheme.colorScheme.onBackgroundVariant)
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        MusesContentAction(if (query.isNotBlank()) "播放结果" else "播放全部", {
+                            visible.firstOrNull()?.let { onPlay(it, visible) }
+                        }, Modifier.weight(1f), primary = true, enabled = visible.isNotEmpty(), icon = TablerIcons.PlayFill)
+                        onDownloadAll?.let { download -> MusesContentAction("全部下载", download, enabled = downloadAllEnabled, icon = TablerIcons.Download) }
+                        onManageDownloads?.let { manage -> MusesContentAction("下载管理", manage, icon = TablerIcons.Download) }
+                    }
                     if (metadataStatus != null || repairingMetadata) Text(metadataStatus ?: "正在自动完善信息…", color = MiuixTheme.colorScheme.onBackgroundVariant)
                     LibrarySearchField(query, { query = it }, "搜索当前列表", onCancel = { query = "" })
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(if (query.isNotBlank()) "找到 ${visible.size} 首 / 共 ${songs.size} 首" else "${songs.size} 首",
                             modifier = Modifier.weight(1f), color = MiuixTheme.colorScheme.onBackgroundVariant)
-                        MusesTextButton(text = if (query.isNotBlank()) "播放搜索结果" else "播放全部",
-                            onClick = { visible.firstOrNull()?.let { onPlay(it, visible) } }, enabled = visible.isNotEmpty())
+
                     }
                 }
             },

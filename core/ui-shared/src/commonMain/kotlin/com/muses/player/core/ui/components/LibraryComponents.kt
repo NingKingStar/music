@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,6 +29,20 @@ import top.yukonga.miuix.kmp.basic.Icon
 import com.muses.player.core.ui.components.MarqueeText as Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -144,10 +159,17 @@ fun LibrarySearchField(
     modifier: Modifier = Modifier,
 ) {
     val scheme = MiuixTheme.colorScheme
+    var focused by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Row(Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(scheme.onBackground.copy(alpha = .045f))
+            .clickable { focusRequester.requestFocus(); keyboard?.show() }
+            .heightIn(min = 48.dp).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(
             TablerIcons.Search,
             contentDescription = null,
@@ -172,10 +194,19 @@ fun LibrarySearchField(
                 singleLine = true,
                 textStyle = MiuixTheme.textStyles.body1.copy(color = scheme.onBackground),
                 cursorBrush = SolidColor(scheme.primary),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().focusRequester(focusRequester).onFocusChanged { focused = it.isFocused },
             )
         }
-        MusesTextButton(text = "取消", onClick = onCancel)
+        if (value.isNotEmpty()) MusesIconButton(onClick = { onValueChange("") },
+            imageVector = TablerIcons.Close, contentDescription = "清空搜索", size = MusesIconButtonSize.SM)
+        }
+        AnimatedVisibility(visible = focused || value.isNotEmpty(), enter = fadeIn() + expandHorizontally(), exit = fadeOut() + shrinkHorizontally()) {
+            MusesTextButton(text = "取消", onClick = {
+                onCancel()
+                focusManager.clearFocus()
+                keyboard?.hide()
+            })
+        }
     }
 }
 

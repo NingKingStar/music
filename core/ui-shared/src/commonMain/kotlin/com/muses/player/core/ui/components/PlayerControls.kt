@@ -84,12 +84,7 @@ fun PlayerModeBar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        MusesIconButton(
-            onClick = onToggleRepeat,
-            imageVector = when { shuffleEnabled -> TablerIcons.Shuffle; repeatMode == 1 -> TablerIcons.RepeatOne; repeatMode == 0 -> TablerIcons.FormatListBulleted; else -> TablerIcons.Repeat },
-            contentDescription = "播放模式：" + when { shuffleEnabled -> "随机播放"; repeatMode == 1 -> "单曲循环"; repeatMode == 0 -> "顺序播放"; else -> "列表循环" },
-            tint = contentColor.copy(alpha = 0.8f),
-        )
+        PlaybackModeButton(repeatMode, shuffleEnabled, onToggleRepeat)
         MusesIconButton(
             onClick = onOpenQueue,
             imageVector = TablerIcons.QueueMusic,

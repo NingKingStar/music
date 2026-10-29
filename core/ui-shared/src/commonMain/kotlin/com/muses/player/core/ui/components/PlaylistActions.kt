@@ -1,6 +1,7 @@
 package com.muses.player.core.ui.components
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.*
@@ -37,6 +38,8 @@ fun PlaylistPickerDialog(song: Song, store: UserPlaylistStore, onDismiss: () -> 
     var name by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
+    var creating by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
     val existing = playlists.orEmpty().filter { it.contains(song) }.map { it.id }.toSet()
     val additions = selected - existing
     fun save(create: Boolean) {
@@ -52,40 +55,47 @@ fun PlaylistPickerDialog(song: Song, store: UserPlaylistStore, onDismiss: () -> 
             finally { saving = false }
         }
     }
-    MusesDialog(
-        title = "添加到歌单",
-        message = song.title,
+    MusesFormSheet(
+        title = if (creating) "新建歌单并加入" else "添加到歌单",
+        message = listOfNotNull(song.title, song.artist).joinToString(" · "),
         onDismiss = { if (!saving) onDismiss() },
         dismissText = "取消",
-        confirmText = "添加",
-        confirmEnabled = playlists != null && additions.isNotEmpty(),
+        confirmText = if (creating) "创建并加入" else "添加（${additions.size}）",
+        confirmEnabled = playlists != null && if (creating) name.isNotBlank() else additions.isNotEmpty(),
         confirmLoading = saving,
-        onConfirm = { save(false) },
+        onConfirm = { save(creating) },
         content = {
-            Text("只添加到自建歌单，不改变我喜欢和已下载。", color = MiuixTheme.colorScheme.onBackgroundVariant)
-            Spacer(Modifier.height(8.dp))
+            if (creating) {
+                MusesTextField(name, { name = it.take(40); error = null }, label = "歌单名称", singleLine = true, enabled = !saving)
+                MusesContentAction("返回选择已有歌单", { creating = false }, enabled = !saving)
+            } else {
+            MusesTextField(query, { query = it }, label = "搜索我的歌单", singleLine = true)
             if (playlists == null) Text("正在加载歌单…")
             else if (playlists.orEmpty().isEmpty()) Text("还没有自建歌单，可以在下方新建。")
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 280.dp)) {
-                items(playlists.orEmpty(), key = { it.id }) { playlist ->
+            val visible = playlists.orEmpty().filter { it.name.contains(query.trim(), ignoreCase = true) }
+            if (playlists?.isNotEmpty() == true && visible.isEmpty()) Text("没有匹配的歌单")
+            Column(Modifier.fillMaxWidth()) {
+                visible.forEach { playlist ->
                     val added = playlist.id in existing
-                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().clickable(enabled = !added && !saving) {
+                        selected = if (playlist.id in selected) selected - playlist.id else selected + playlist.id
+                    }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        MusesCover(playlist.tracks.firstOrNull { !it.coverUri.isNullOrBlank() }?.coverUri, size = 44.dp)
+                        Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                            Text(playlist.name)
+                            Text(if (added) "已添加" else "${playlist.tracks.size} 首", color = MiuixTheme.colorScheme.onBackgroundVariant)
+                        }
                         MusesCheckbox(
                             checked = added || playlist.id in selected,
                             enabled = !added && !saving,
                             onToggle = { selected = if (playlist.id in selected) selected - playlist.id else selected + playlist.id },
                         )
-                        Column(Modifier.weight(1f).padding(start = 8.dp)) {
-                            Text(playlist.name)
-                            Text(if (added) "已添加 · 移除请进入该歌单" else "${playlist.tracks.size} 首",
-                                color = MiuixTheme.colorScheme.onBackgroundVariant)
-                        }
                     }
                 }
             }
             Spacer(Modifier.height(12.dp))
-            MusesTextField(name, { name = it; error = null }, label = "新歌单名称", singleLine = true, enabled = !saving)
-            MusesTextButton(text = "新建歌单并加入", onClick = { save(true) }, enabled = playlists != null && name.isNotBlank() && !saving)
+            MusesContentAction("新建歌单并加入", { creating = true }, Modifier.fillMaxWidth(), enabled = playlists != null && !saving, icon = TablerIcons.Add)
+            }
             error?.let { Text(it, color = MiuixTheme.colorScheme.error) }
         },
     )
