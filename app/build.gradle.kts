@@ -1,11 +1,13 @@
 
 
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
 
-val releaseVersion = java.util.Properties().apply {
+val releaseVersion = Properties().apply {
     rootProject.file("release.properties").inputStream().use { load(it) }
 }
 val releaseSigningFile = providers.gradleProperty("android.injected.signing.store.file").orNull
