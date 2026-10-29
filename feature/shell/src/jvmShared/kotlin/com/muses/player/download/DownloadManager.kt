@@ -279,7 +279,7 @@ class DownloadManager(
         playlistBatchState.value = true
         try {
             ready.await()
-            val quality = LxQuality.fromKey(selectedQuality)?.key ?: settings.downloadPreferredQuality.first()
+            val quality = selectedQuality.takeIf { LxQuality.fromKey(it) != null } ?: settings.downloadPreferredQuality.first()
             val unique = mutableListOf<Song>()
             for (song in entries) {
                 if (OnlineTrackRef.parse(song.path) != null &&
@@ -672,7 +672,7 @@ class DownloadManager(
             return checkNotNull(fallbackRef)
         }
         try {
-            for (quality in LxQuality.ordered().filter { it.rank <= requested.rank }.sortedByDescending { it.rank }) {
+            for (quality in com.muses.player.core.lxsdk.fallbackQualities(requested)) {
                 var index = 0
                 while (true) {
                     val candidate = if (index == 0) ref else {
@@ -790,7 +790,7 @@ class DownloadManager(
                 throw IllegalStateException("音源无响应（等待超时），请稍后重试或更换音源脚本")
             } catch (e: com.muses.player.core.lxsdk.LxResolveException) {
                 if (rejected.isEmpty()) throw e
-                candidate = LxQuality.ordered().lastOrNull { it.rank < asking.rank }
+                candidate = com.muses.player.core.lxsdk.fallbackQualities(asking).firstOrNull { it.rank < asking.rank }
                 continue
             }
             change(taskId) { it.copy(requestedQuality = url.quality?.key, sourceName = url.sourceName,
@@ -809,7 +809,7 @@ class DownloadManager(
                     previewRetries[asking] = attempts
                     if (resolveAudio == null && attempts <= 2) continue
                 }
-                candidate = LxQuality.ordered().lastOrNull { it.rank < (url.quality ?: asking).rank }
+                candidate = com.muses.player.core.lxsdk.fallbackQualities(url.quality ?: asking).firstOrNull { it.rank < (url.quality ?: asking).rank }
             }
         }
         throw lastError ?: IllegalStateException("音源没有可用的下载档位")

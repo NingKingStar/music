@@ -117,7 +117,7 @@ class PlayerConnection constructor(
         _shuffleModeEnabled,
     ) { repeat, shuffle ->
         PlayerConfig(
-            repeatMode = if (repeat == Player.REPEAT_MODE_ONE) RepeatMode.ONE else RepeatMode.ALL,
+            repeatMode = when (repeat) { Player.REPEAT_MODE_ONE -> RepeatMode.ONE; Player.REPEAT_MODE_OFF -> RepeatMode.NONE; else -> RepeatMode.ALL },
             shuffleEnabled = shuffle,
         )
     }.stateIn(portScope, SharingStarted.Eagerly, PlayerConfig())
@@ -441,6 +441,7 @@ class PlayerConnection constructor(
     /** U12 端口模型重载：枚举 → Media3 整型（REPEAT_MODE_OFF=0/ONE=1/ALL=2 冻结数值） */
     override fun setRepeatMode(mode: RepeatMode) {
         controller?.repeatMode = when (mode) {
+            RepeatMode.NONE -> Player.REPEAT_MODE_OFF
             RepeatMode.ONE -> Player.REPEAT_MODE_ONE
             RepeatMode.ALL -> Player.REPEAT_MODE_ALL
         }

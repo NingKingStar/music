@@ -170,10 +170,22 @@ class KgSearchProvider(
  */
 class WySearchProvider(
     private val http: SearchHttp = SearchHttp(),
-) : OnlineSearchProvider {
+) : OnlineSearchProvider, com.muses.player.core.search.OnlineLyricSearchProvider {
 
     override val platform: String = PLATFORM_WY
     override val displayName: String = "网易云音乐"
+
+    override suspend fun searchLyrics(keyword: String): List<OnlineSearchResult> {
+        val root = http.parseObject(http.getText("https://music.163.com/api/search/get?s=${urlEncode(keyword)}&type=1006&offset=0&limit=20", referer = "https://music.163.com/"))
+        val results = root.obj("result")?.arr("songs").orEmpty().mapNotNull { raw ->
+            val item = raw as? JsonObject ?: return@mapNotNull null
+            val song = parseWyTrack(item.obj("song") ?: item) ?: return@mapNotNull null
+            val lyric = item["lyrics"]?.toString().orEmpty() + item["lyric"]?.toString().orEmpty()
+            if (!lyricTextMatches(lyric, keyword)) return@mapNotNull null
+            song.copy(lyricMatched = true)
+        }
+        return com.muses.player.core.search.enrichWySongVersions(http, results)
+    }
 
     override suspend fun search(keyword: String, page: Int, pageSize: Int): OnlineSearchPage {
         val offset = (page - 1).coerceAtLeast(0) * pageSize

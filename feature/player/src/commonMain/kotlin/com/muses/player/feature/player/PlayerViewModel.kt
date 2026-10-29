@@ -134,7 +134,7 @@ class PlayerViewModel constructor(
 
     /** 循环/随机模式：Int 口径保持旧 UI 签名（PlayerControls 参数不变），数值冻结见 [PlaybackStates] */
     val repeatMode: StateFlow<Int> = playback.playerConfig
-        .map { if (it.repeatMode == RepeatMode.ONE) PlaybackStates.REPEAT_MODE_ONE else PlaybackStates.REPEAT_MODE_ALL }
+        .map { when (it.repeatMode) { RepeatMode.NONE -> 0; RepeatMode.ONE -> PlaybackStates.REPEAT_MODE_ONE; RepeatMode.ALL -> PlaybackStates.REPEAT_MODE_ALL } }
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlaybackStates.REPEAT_MODE_ALL)
     val shuffleModeEnabled: StateFlow<Boolean> = playback.playerConfig
@@ -252,6 +252,11 @@ class PlayerViewModel constructor(
 
     fun toggleShuffle() {
         playback.setShuffleEnabled(!playback.playerConfig.value.shuffleEnabled)
+    }
+
+    fun selectPlaybackMode(mode: com.muses.player.core.model.playback.PlaybackMode) {
+        playback.setShuffleEnabled(mode.shuffle)
+        playback.setRepeatMode(mode.repeat)
     }
 
     fun onSeekStart() {

@@ -351,6 +351,21 @@ class OnlineSearchViewModel(
             applyOutcomes(outcomes, page = 1)
             _state.value = _state.value.copy(searching = false)
             if (historyVersion == historyGeneration && outcomes.any { it is PlatformSearchOutcome.Success }) rememberSearch(keyword, draft = true)
+            // 普通搜索先展示；疑似歌词的查询再补充匹配结果，取消和旧请求保护沿用同一代次。
+            fun normalized(s: String) = s.lowercase().filter { it.isLetterOrDigit() }
+            val query = normalized(keyword)
+            val results = _state.value.platforms.flatMap { it.results }
+            val directMatch = results.any { song -> normalized(song.name) == query ||
+                song.artist.orEmpty().split(Regex("[/、,，&;；]+" )).any { normalized(it).isNotEmpty() && normalized(it) in query } }
+            if (query.length >= 4 && !directMatch) {
+                val lyrics = searchService.searchLyrics(keyword)
+                if (requestSeq != searchSeq || historyVersion != historyGeneration) return@launch
+                if (lyrics.isNotEmpty()) _state.value = _state.value.copy(platforms = _state.value.platforms.map { platform ->
+                    val matched = lyrics.filter { it.platform == platform.platform }.associateBy { it.songId }
+                    platform.copy(results = platform.results.map { matched[it.songId] ?: it } +
+                        matched.values.filter { new -> platform.results.none { it.songId == new.songId } })
+                }, message = "已匹配歌词，优先展示相关原唱")
+            }
         }
     }
 

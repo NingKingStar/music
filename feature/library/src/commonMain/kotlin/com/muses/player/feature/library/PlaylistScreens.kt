@@ -143,10 +143,16 @@ fun CollectionSongsScreen(
     onRemove: ((Song) -> Unit)?, removeLabel: String = "从当前歌单移除", onManageDownloads: (() -> Unit)? = null,
     onDownloadAll: (() -> Unit)? = null, downloadAllEnabled: Boolean = true,
     onRepairMetadata: (() -> Unit)? = null, repairingMetadata: Boolean = false,
+    metadataStatus: String? = null,
     songStatus: (Song) -> String? = { null },
 ) {
     var query by rememberSaveable(title) { mutableStateOf("") }
     var actionSong by remember { mutableStateOf<Song?>(null) }
+    var showMetadataActions by remember { mutableStateOf(false) }
+    if (showMetadataActions) MusesActionsSheet(opened = true, onDismiss = { showMetadataActions = false },
+        label = "歌单信息", items = listOf(MusesActionItem("重新补全缺失信息") {
+            showMetadataActions = false; onRepairMetadata?.invoke()
+        }))
     val visible = remember(songs, query) {
         songs.filter { query.isBlank() || it.title.contains(query.trim(), true) || it.artist.orEmpty().contains(query.trim(), true) }
     }
@@ -159,14 +165,14 @@ fun CollectionSongsScreen(
         topBar = { MusesTopBar(
             title = title, onBack = onBack,
             actions = {
+                if (onRepairMetadata != null) MusesIconButton(onClick = { showMetadataActions = true },
+                    imageVector = TablerIcons.MoreHorizontal, contentDescription = "歌单更多操作")
                 onDownloadAll?.let { download -> MusesTextButton(text = "全部下载", onClick = download, enabled = downloadAllEnabled) }
                 onManageDownloads?.let { manage -> MusesTextButton(text = "下载管理", onClick = manage) }
             },
             bottomContent = {
                 Column(Modifier.padding(horizontal = 16.dp)) {
-                    onRepairMetadata?.let { repair -> MusesTextButton(
-                        text = if (repairingMetadata) "正在检查信息…" else "检查并补全信息",
-                        onClick = repair, enabled = !repairingMetadata) }
+                    if (metadataStatus != null || repairingMetadata) Text(metadataStatus ?: "正在自动完善信息…", color = MiuixTheme.colorScheme.onBackgroundVariant)
                     LibrarySearchField(query, { query = it }, "搜索当前列表", onCancel = { query = "" })
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(if (query.isNotBlank()) "找到 ${visible.size} 首 / 共 ${songs.size} 首" else "${songs.size} 首",

@@ -29,7 +29,7 @@ class CatalogRepairTest {
         val current = parseWyTrack(obj("""{"id":1,"name":"晴天","ar":[{"name":"周杰伦"}],"al":{"id":9,"name":"叶惠美","picUrl":"https://cdn.test/cover.jpg"},"dt":269000,"originCoverType":1,"sq":{"size":100}}"""))!!
         assertEquals(old, current)
         assertEquals("原唱", old.performanceLabel)
-        assertEquals("SQ", old.qualityLabel)
+        assertEquals("无损", old.qualityLabel)
         assertEquals("9", obj(old.musicInfoJson)["albumId"]!!.jsonPrimitive.content)
     }
 

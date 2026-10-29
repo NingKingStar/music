@@ -32,6 +32,8 @@ data class OnlineSearchResult(
     val musicInfoJson: String,
     /** 展示排序只重排同一页，后续分页不能把已看到的条目挤走。 */
     val searchPage: Int = 1,
+    /** 只有歌词接口返回片段且包含查询文本时才置真。 */
+    val lyricMatched: Boolean = false,
 ) {
     /** 转为播放链路可直接消费的曲目引用 */
     fun toTrackRef(sourceId: String, quality: String? = null): OnlineTrackRef =
@@ -98,6 +100,10 @@ interface OnlineSearchProvider {
      * @param pageSize 每页条数
      */
     suspend fun search(keyword: String, page: Int, pageSize: Int): OnlineSearchPage
+}
+
+interface OnlineLyricSearchProvider {
+    suspend fun searchLyrics(keyword: String): List<OnlineSearchResult>
 }
 
 /** 搜索失败（网络/解析/平台拒绝）；聚合层会转成用户可读提示 */

@@ -21,7 +21,7 @@ class PlaylistImportTest {
         assertFailsWith<IllegalArgumentException> { parsePlaylistAddress("https://example.com/playlist?id=42") }
     }
 
-    @Test fun `网易补齐歌单顺序并拒绝丢歌`() = runTest {
+    @Test fun `网易保留完整身份顺序且详情缺失交给自动补全`() = runTest {
         var missing = false
         val client = HttpClient(MockEngine { request ->
             val body = if (request.url.encodedPath.contains("playlist"))
@@ -34,7 +34,7 @@ class PlaylistImportTest {
             val service = PlaylistImportService(SearchHttp(client))
             assertEquals(listOf("2", "1"), service.load(PlaylistAddress("wy", "3")).songs.map { it.songId })
             missing = true
-            assertFailsWith<IllegalArgumentException> { service.load(PlaylistAddress("wy", "3")) }
+            assertEquals(listOf("2", "1"), service.load(PlaylistAddress("wy", "3")).songs.map { it.songId })
         } finally { client.close() }
     }
 

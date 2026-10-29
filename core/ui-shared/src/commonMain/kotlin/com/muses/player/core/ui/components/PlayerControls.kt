@@ -86,14 +86,8 @@ fun PlayerModeBar(
     ) {
         MusesIconButton(
             onClick = onToggleRepeat,
-            imageVector = if (repeatMode == PLAYER_REPEAT_ONE) TablerIcons.RepeatOne else TablerIcons.Repeat,
-            contentDescription = if (repeatMode == PLAYER_REPEAT_ONE) "单曲循环" else "列表循环",
-            tint = contentColor.copy(alpha = 0.8f),
-        )
-        MusesIconButton(
-            onClick = onToggleShuffle,
-            imageVector = if (shuffleEnabled) TablerIcons.Shuffle else TablerIcons.FormatListBulleted,
-            contentDescription = if (shuffleEnabled) "随机播放" else "顺序播放",
+            imageVector = when { shuffleEnabled -> TablerIcons.Shuffle; repeatMode == 1 -> TablerIcons.RepeatOne; repeatMode == 0 -> TablerIcons.FormatListBulleted; else -> TablerIcons.Repeat },
+            contentDescription = "播放模式：" + when { shuffleEnabled -> "随机播放"; repeatMode == 1 -> "单曲循环"; repeatMode == 0 -> "顺序播放"; else -> "列表循环" },
             tint = contentColor.copy(alpha = 0.8f),
         )
         MusesIconButton(

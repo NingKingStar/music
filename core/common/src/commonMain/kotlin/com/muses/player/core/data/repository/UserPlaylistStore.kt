@@ -22,6 +22,10 @@ data class UserPlaylist(
     val name: String,
     val tracks: List<DownloadTrack> = emptyList(),
     val followPreferredQuality: Boolean = false,
+    val metadataRepairVersion: Int = 0,
+    val metadataRepairCursor: Int = 0,
+    val metadataRepairPass: Int = 0,
+    val metadataRepairRequested: Boolean = false,
 ) {
     fun contains(song: Song): Boolean = tracks.any { sameSong(it.toSong(), song) }
     fun adding(song: Song): UserPlaylist =
@@ -97,4 +101,12 @@ class UserPlaylistStore(private val dataStore: DataStore<Preferences>) {
     /** 删除歌单仅解除成员关系，不删除歌曲文件或其他分类。 */
     suspend fun delete(id: String) = update { current -> current.filterNot { it.id == id } }
     suspend fun snapshot(): List<UserPlaylist> = playlists.first()
+
+    suspend fun metadataProgress(id: String, cursor: Int, pass: Int, done: Boolean = false) = update { current ->
+        current.map { if (it.id == id) it.copy(metadataRepairCursor = cursor, metadataRepairPass = pass,
+            metadataRepairVersion = if (done) 1 else 0, metadataRepairRequested = !done && it.metadataRepairRequested) else it }
+    }
+
+    suspend fun retryMetadata(id: String) = update { current -> current.map { if (it.id == id)
+        it.copy(metadataRepairCursor = 0, metadataRepairPass = 0, metadataRepairVersion = 0, metadataRepairRequested = true) else it } }
 }

@@ -359,11 +359,13 @@ class PlaybackService : MediaSessionService() {
      */
     /** 主线程应用恢复的播放配置 */
     private fun applyRestoredConfig(player: Player, config: com.muses.player.core.model.playback.PlayerConfig) {
-        player.repeatMode = if (config.repeatMode == com.muses.player.core.model.playback.RepeatMode.ONE) {
-            Player.REPEAT_MODE_ONE
-        } else {
+        player.repeatMode = if (config.shuffleEnabled) {
             Player.REPEAT_MODE_ALL
-        }
+        } else if (config.repeatMode == com.muses.player.core.model.playback.RepeatMode.ONE) {
+            Player.REPEAT_MODE_ONE
+        } else if (config.repeatMode == com.muses.player.core.model.playback.RepeatMode.NONE) {
+            Player.REPEAT_MODE_OFF
+        } else { Player.REPEAT_MODE_ALL }
         player.shuffleModeEnabled = config.shuffleEnabled
     }
 

@@ -7,7 +7,7 @@ import kotlin.test.assertNull
 class AudioQualityTest {
     @Test fun `无损高位深与高采样率和有损码率分开判断`() {
         assertEquals("Hi-Res", classifyAudioQuality(true, 24, 96_000, 4608))
-        assertEquals("SQ", classifyAudioQuality(true, 16, 44_100, 900))
+        assertEquals("无损", classifyAudioQuality(true, 16, 44_100, 900))
         assertEquals("HQ", classifyAudioQuality(false, 0, 48_000, 320))
         assertEquals("标准", classifyAudioQuality(false, 0, 44_100, 128))
         assertNull(classifyAudioQuality(false, 0, 0, 0))

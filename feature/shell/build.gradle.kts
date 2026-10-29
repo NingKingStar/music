@@ -65,6 +65,7 @@ kotlin {
         }
         jvmMain.get().dependsOn(jvmShared)
         jvmTest.dependencies {
+            implementation(libs.ktor.client.mock)
             implementation(kotlin("test"))
             implementation(libs.kotlinx.coroutines.test)
             implementation(libs.okhttp.mockwebserver)

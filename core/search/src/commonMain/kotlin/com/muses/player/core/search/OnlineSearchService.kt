@@ -38,6 +38,15 @@ class OnlineSearchService(
     /** 全部可用平台 key（保持 provider 注册顺序） */
     val platforms: List<String> = providers.map { it.platform }
 
+    suspend fun searchLyrics(keyword: String): List<OnlineSearchResult> =
+        kotlinx.coroutines.withTimeoutOrNull(6_000) {
+            coroutineScope { providers.filterIsInstance<OnlineLyricSearchProvider>().map { provider -> async {
+                try { provider.searchLyrics(keyword) }
+                catch (e: CancellationException) { throw e }
+                catch (_: Exception) { emptyList() }
+            } }.flatMap { it.await() } }
+        }.orEmpty()
+
     /** 单平台搜索；平台不存在时抛 [OnlineSearchException] */
     suspend fun search(
         platform: String,

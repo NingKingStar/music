@@ -24,10 +24,11 @@ internal fun ImportPlaylistDialog(store: UserPlaylistStore, onDismiss: () -> Uni
     val http = koinInject<SearchHttp>()
     val service = remember(http) { PlaylistImportService(http) }
     val scope = rememberCoroutineScope()
+    val metadataManager = koinInject<PlaylistMetadataManager>()
     val loaded = playlist
     MusesDialog(
         title = if (loaded == null) "导入歌单" else "确认导入",
-        message = if (loaded == null) "粘贴网易云音乐或 QQ 音乐公开歌单的完整分享链接。" else "共 ${loaded.songs.size} 首，其中 ${loaded.songs.count { com.muses.player.core.search.needsSongMetadata(it.toSong("online")) }} 首信息待补全。播放可用性未检测；不自动下载。",
+        message = if (loaded == null) "粘贴网易云音乐或 QQ 音乐公开歌单的完整分享链接。" else "共 ${loaded.songs.size} 首，其中 ${loaded.songs.count { com.muses.player.core.search.needsSongMetadata(it.toSong("online")) }} 首将在导入后自动完善信息。播放可用性未检测；不自动下载。",
         onDismiss = { if (!busy) onDismiss() }, dismissText = "取消",
         confirmText = if (loaded == null) "读取歌单" else "导入歌单",
         confirmEnabled = if (loaded == null) link.isNotBlank() else name.isNotBlank(), confirmLoading = busy,
@@ -44,6 +45,7 @@ internal fun ImportPlaylistDialog(store: UserPlaylistStore, onDismiss: () -> Uni
                             // 自建歌单按添加时间倒序显示，反转后可保留来源歌单顺序。
                             val songs = loaded.songs.map { it.toSong("online") }.asReversed()
                             val id = store.createImported(name, songs)
+                            metadataManager.start()
                             onOpen(id)
                         }
                     } catch (e: CancellationException) { throw e }

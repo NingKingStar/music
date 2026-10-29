@@ -351,7 +351,7 @@ class DownloadManagerTest {
         val lossy320 = com.muses.player.core.media.scanner.DownloadAudioQuality(false, 0, 44100, 320_000, "mp3")
         val lossyWarning = downloadQualityReport(LxQuality.MASTER, "mp3", lossy320)
         assertNotNull(lossyWarning.warning)
-        assertTrue(lossyWarning.warning!!.contains("母带"), lossyWarning.warning)
+        assertTrue(lossyWarning.warning!!.contains("Hi-Res"), lossyWarning.warning)
 
         val flac24192 = com.muses.player.core.media.scanner.DownloadAudioQuality(true, 24, 192_000, 4608, "flac")
         val high = downloadQualityReport(LxQuality.MASTER, "flac", flac24192)
@@ -360,9 +360,9 @@ class DownloadManagerTest {
         assertTrue(high.label.contains("192000"), high.label)
         assertFalse(high.label.contains("母带"), high.label)
 
-        // 母带不硬性要求 192kHz：44.1kHz 无损不应被判失败。
+        // Hi-Res 统一档位必须核实位深；16bit 无损应提示回退。
         val flac16441 = com.muses.player.core.media.scanner.DownloadAudioQuality(true, 16, 44_100, 900, "flac")
-        assertNull(downloadQualityReport(LxQuality.MASTER, "flac", flac16441).warning)
+        assertNotNull(downloadQualityReport(LxQuality.MASTER, "flac", flac16441).warning)
 
         // 采样率未知/异常低的无损也不能直接当达标。
         val unknownRate = com.muses.player.core.media.scanner.DownloadAudioQuality(true, 24, 0, 0, "flac")

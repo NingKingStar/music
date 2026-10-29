@@ -74,7 +74,7 @@ enum class LxQuality(val key: String, val label: String, val rank: Int) {
     val isHighTier: Boolean get() = rank >= FLAC.rank
 
     companion object {
-        fun fromKey(key: String): LxQuality? = entries.firstOrNull { it.key == key }
+        fun fromKey(key: String): LxQuality? = if (key == "auto_best") MASTER else entries.firstOrNull { it.key == key }
 
         /**
          * 默认偏好档位。

@@ -8,8 +8,20 @@ package com.muses.player.core.model.playback
 
 /** 循环模式（queue.ts RepeatMode）；wire 值与 Web 一致 */
 enum class RepeatMode(val wire: String) {
+    NONE("none"),
     ONE("one"),
     ALL("all"),
+}
+
+enum class PlaybackMode(val label: String, val repeat: RepeatMode, val shuffle: Boolean) {
+    SEQUENTIAL("顺序播放", RepeatMode.NONE, false),
+    LOOP("列表循环", RepeatMode.ALL, false),
+    SINGLE("单曲循环", RepeatMode.ONE, false),
+    SHUFFLE("随机播放", RepeatMode.ALL, true);
+    companion object {
+        fun from(config: PlayerConfig): PlaybackMode = if (config.shuffleEnabled) SHUFFLE else
+            entries.first { it.repeat == config.repeatMode && !it.shuffle }
+    }
 }
 
 /**

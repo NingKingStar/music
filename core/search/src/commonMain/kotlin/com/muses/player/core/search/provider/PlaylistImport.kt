@@ -37,17 +37,14 @@ class PlaylistImportService(private val http: SearchHttp = SearchHttp()) {
         require(count == ids.size.toLong() && ids.isNotEmpty()) { "平台返回的歌单不完整或没有歌曲，请检查歌单权限" }
         require(ids.size <= 5000) { "歌单超过 5000 首，请分成多个歌单导入" }
         val found = mutableMapOf<Long, OnlineSearchResult>()
-        for (batch in ids.distinct().chunked(100)) {
-            val detail = http.parseObject(http.getText("https://music.163.com/api/song/detail/?ids=%5B${batch.joinToString(",")}%5D", referer = "https://music.163.com/"))
-            val entries = detail.arr("songs") ?: error("歌曲详情读取失败，请稍后重试")
-            for (entry in entries) {
-                val item = entry as? JsonObject ?: continue
-                val song = parseWyTrack(item) ?: continue
-                found[song.songId.toLong()] = song
-            }
+        info.arr("tracks").orEmpty().forEach { raw ->
+            (raw as? JsonObject)?.let(::parseWyTrack)?.let { found[it.songId.toLong()] = it }
         }
-        require(ids.all { it in found }) { "部分歌曲无法读取，未导入歌单，请检查权限后重试" }
-        return ImportedPlaylist(name, ids.map { found.getValue(it) })
+        // 列表身份和数量已经核对，缺少详情的条目保留真实编号，由应用后台按编号补齐。
+        return ImportedPlaylist(name, ids.map { songId -> found[songId] ?: OnlineSearchResult(
+            "wy", songId.toString(), "待补全歌曲", null, null, null, null,
+            buildMusicInfo("id" to songId.toString(), name = "", singer = null, album = null, durationSec = null),
+        ) })
     }
 
     private suspend fun loadQq(id: String): ImportedPlaylist {
@@ -77,7 +74,15 @@ class PlaylistImportService(private val http: SearchHttp = SearchHttp()) {
             require(page.isNotEmpty()) { "平台返回的歌单不完整，请稍后重试" }
             for (entry in page) {
                 val raw = entry as? JsonObject ?: error("平台返回的歌曲信息不完整")
-                songs += parseTxTrack(raw) ?: error("部分歌曲缺少标识或名称，未导入")
+                val track = parseTxTrack(raw) ?: run {
+                    val item = raw.obj("songInfo") ?: raw.obj("songinfo") ?: raw
+                    val mid = (item.str("mid") ?: item.str("songmid"))?.takeIf { it.isNotBlank() }
+                        ?: error("部分歌曲缺少标识，未导入")
+                    OnlineSearchResult("tx", mid, "待补全歌曲", null, null, null, null,
+                        buildMusicInfo("songmid" to mid, "mid" to mid, "id" to (item.str("id") ?: item.str("songid")),
+                            name = "", singer = null, album = null, durationSec = null))
+                }
+                songs += track
             }
             offset += page.size
             require(offset <= total) { "平台返回的歌单数量异常，请稍后重试" }

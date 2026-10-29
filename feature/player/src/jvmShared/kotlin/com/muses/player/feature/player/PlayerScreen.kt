@@ -163,6 +163,18 @@ fun PlayerScreen(
     val isPlaying by viewModel.isPlaying.collectAsStateWithLifecycle()
     val position by viewModel.position.collectAsStateWithLifecycle()
     val duration by viewModel.duration.collectAsStateWithLifecycle()
+    var showPlaybackMode by remember { mutableStateOf(false) }
+    val modeConfig by viewModel.playback.playerConfig.collectAsStateWithLifecycle()
+    if (showPlaybackMode) com.muses.player.core.ui.components.MusesActionsSheet(
+        opened = true, onDismiss = { showPlaybackMode = false }, label = "播放模式",
+        items = com.muses.player.core.model.playback.PlaybackMode.entries.map { mode ->
+            com.muses.player.core.ui.components.MusesActionItem(mode.label + if (com.muses.player.core.model.playback.PlaybackMode.from(modeConfig) == mode) "（当前）" else "") {
+                viewModel.selectPlaybackMode(mode)
+                showPlaybackMode = false
+                com.muses.player.core.ui.components.MusesSnackbar.show(mode.label)
+            }
+        },
+    )
     val repeatMode by viewModel.repeatMode.collectAsStateWithLifecycle()
     val shuffleModeEnabled by viewModel.shuffleModeEnabled.collectAsStateWithLifecycle()
     val parsedLines by viewModel.parsedLines.collectAsStateWithLifecycle()
@@ -411,7 +423,7 @@ fun PlayerScreen(
                     onPlayPause = { viewModel.playPause() },
                     onPrevious = { viewModel.skipToPrevious() },
                     onNext = { viewModel.skipToNext() },
-                    onToggleRepeat = { viewModel.toggleRepeat() },
+                    onToggleRepeat = { showPlaybackMode = true },
                     onToggleShuffle = { viewModel.toggleShuffle() },
                     onOpenQueue = onOpenQueue,
                     onOpenEditMeta = onOpenEditMeta,
@@ -448,7 +460,7 @@ fun PlayerScreen(
                     onPlayPause = { viewModel.playPause() },
                     onPrevious = { viewModel.skipToPrevious() },
                     onNext = { viewModel.skipToNext() },
-                    onToggleRepeat = { viewModel.toggleRepeat() },
+                    onToggleRepeat = { showPlaybackMode = true },
                     onToggleShuffle = { viewModel.toggleShuffle() },
                     onOpenQueue = onOpenQueue,
                     onOpenEditMeta = onOpenEditMeta,
@@ -1191,14 +1203,8 @@ private fun TabletBottomBar(
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                 MusesIconButton(
                     onClick = onToggleRepeat,
-                    imageVector = if (repeatMode == PlaybackStates.REPEAT_MODE_ONE) TablerIcons.RepeatOne else TablerIcons.Repeat,
-                    contentDescription = if (repeatMode == PlaybackStates.REPEAT_MODE_ONE) "单曲循环" else "列表循环",
-                    tint = contentColor.copy(alpha = 0.8f),
-                )
-                MusesIconButton(
-                    onClick = onToggleShuffle,
-                    imageVector = if (shuffleEnabled) TablerIcons.Shuffle else TablerIcons.FormatListBulleted,
-                    contentDescription = if (shuffleEnabled) "随机播放" else "顺序播放",
+                    imageVector = when { shuffleEnabled -> TablerIcons.Shuffle; repeatMode == 1 -> TablerIcons.RepeatOne; repeatMode == 0 -> TablerIcons.FormatListBulleted; else -> TablerIcons.Repeat },
+                    contentDescription = "播放模式：" + when { shuffleEnabled -> "随机播放"; repeatMode == 1 -> "单曲循环"; repeatMode == 0 -> "顺序播放"; else -> "列表循环" },
                     tint = contentColor.copy(alpha = 0.8f),
                 )
             }

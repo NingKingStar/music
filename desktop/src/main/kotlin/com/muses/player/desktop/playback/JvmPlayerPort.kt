@@ -169,7 +169,8 @@ class JvmPlayerPort(
         ensurePlayer()
         scope.launch {
             runCatching {
-                val config = playbackStateRepository.readConfig()
+                val saved = playbackStateRepository.readConfig()
+                val config = if (saved.shuffleEnabled) saved.copy(repeatMode = RepeatMode.ALL) else saved
                 _playerConfig.value = config
                 repeatMode = config.repeatMode
                 if (config.shuffleEnabled) queue.setShuffleEnabled(true)
@@ -708,6 +709,12 @@ class JvmPlayerPort(
             return
         }
         val errorIndex = cur.currentIndex
+        if (repeatMode == RepeatMode.NONE && errorIndex >= order.lastIndex) {
+            _playbackState.value = JvmPlaybackStates.STATE_ENDED
+            _isPlaying.value = false
+            schedulePersist()
+            return
+        }
         // 列表循环：播到末尾回绕（step 自带回绕）；单曲队列 + ALL 同样重播
         val nextIndex = if (errorIndex + 1 < order.size) {
             errorIndex + 1

@@ -13,7 +13,7 @@ internal fun downloadQualityReport(
 ): DownloadQualityReport {
     val container = format.uppercase()
     if (actual == null) return DownloadQualityReport("$container（音质未核实）",
-        "实际文件为 $container，无法核实音质，不能确认已达到所选「${selected.label}」")
+        "实际文件为 $container，无法核实音质，不能确认已达到所选「${com.muses.player.core.lxsdk.qualitySelectionLabel(selected.key)}」")
     val detail = if (actual.lossless)
         "无损 · ${actual.bitDepth} bit / ${actual.sampleRate} Hz"
     else "有损 · ${actual.bitrate} kbps"
@@ -25,10 +25,10 @@ internal fun downloadQualityReport(
             !actual.lossless && actual.bitrate < selected.key.removeSuffix("k").toLong() * 0.9
         // 母带：文件头不能证明来源，但明显降级的有损/超低采样率不能当达标；
         // 不要求 192kHz（母带也可以是 44.1/48kHz），只排除明显不符合的情况。
-        LxQuality.MASTER -> !actual.lossless || actual.sampleRate < 44_100
+        LxQuality.MASTER -> !actual.lossless || actual.bitDepth < 24 || actual.sampleRate < 44_100
         // 全景声的交付格式常为有损，不能仅凭 lossless 判断，保持不臆断。
         else -> false
     }
     return DownloadQualityReport(label, if (mismatch)
-        "音质未达到所选「${selected.label}」，实际下载为 $label" else null)
+        "音质未达到所选「${com.muses.player.core.lxsdk.qualitySelectionLabel(selected.key)}」，实际下载为 $label" else null)
 }

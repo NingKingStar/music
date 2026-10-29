@@ -124,7 +124,7 @@ class LxOnlineTrackResolver(
         val budgetStart = TimeSource.Monotonic.markNow()
         fun remainingMs(): Long = overallTimeoutMs - budgetStart.elapsedNow().inWholeMilliseconds
         val requested = requestedQuality ?: LxQuality.DEFAULT
-        val qualities = LxQuality.ordered().filter { it.rank <= requested.rank }.sortedByDescending { it.rank }
+        val qualities = fallbackQualities(requested)
         // 仅在「所有脚本都已加载、可明确断言」时才跳过不支持的档位；否则保持原样尝试。
         val knownQualities = try { repository.loadedDeclaredQualities(ref.platform) }
         catch (e: CancellationException) { throw e }

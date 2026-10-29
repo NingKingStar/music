@@ -34,7 +34,7 @@ class WySongVersionsTest {
             assertEquals("原唱", results[0].performanceLabel)
             assertNull(results[1].performanceLabel)
             assertNull(results[2].performanceLabel)
-            assertEquals("SQ", results[0].qualityLabel)
+            assertEquals("无损", results[0].qualityLabel)
             assertEquals("Hi-Res", results[1].qualityLabel)
             assertEquals("HQ", results[2].qualityLabel)
             assertEquals("320k,flac", kotlinx.serialization.json.Json.parseToJsonElement(results[0].musicInfoJson).jsonObject["catalogQualityTiers"]?.toString()?.trim('"'))

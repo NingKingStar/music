@@ -296,8 +296,7 @@ class LxScriptRepository(
             return resolveFromCandidates(candidates, platform, musicInfoJson, quality, acceptUrl, exactQuality)
         }
         val requested = quality ?: LxQuality.DEFAULT
-        val qualities = if (exactQuality) listOf(requested) else LxQuality.ordered()
-            .filter { it.rank <= requested.rank }.sortedByDescending { it.rank }
+        val qualities = if (exactQuality) listOf(requested) else fallbackQualities(requested)
         val failures = mutableListOf<String>()
         // 保持音质优先级：同档位先试首选脚本，再试后备；都失败后才降档。
         for (effective in qualities) {
@@ -352,8 +351,8 @@ class LxScriptRepository(
             if (!declared.supports(LxAction.MUSIC_URL)) continue
 
             val requested = quality ?: LxQuality.DEFAULT
-            LxQuality.ordered().filter {
-                (if (exactQuality) it == requested else it.rank <= requested.rank) && declared.supports(it)
+            fallbackQualities(requested).filter {
+                (if (exactQuality) it == requested else true) && declared.supports(it)
             }
                 .forEach { effectiveQuality ->
                     downloadAttempts += Triple(effectiveQuality, engine, script.meta.name ?: script.scriptId)

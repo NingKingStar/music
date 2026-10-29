@@ -102,7 +102,7 @@ class DesktopQueueStateMachineTest {
     fun repeat整型互转() {
         assertEquals(com.muses.player.core.model.playback.RepeatMode.ONE, repeatModeFromInt(1))
         assertEquals(com.muses.player.core.model.playback.RepeatMode.ALL, repeatModeFromInt(2))
-        assertEquals(com.muses.player.core.model.playback.RepeatMode.ALL, repeatModeFromInt(0))
+        assertEquals(com.muses.player.core.model.playback.RepeatMode.NONE, repeatModeFromInt(0))
         assertEquals(1, repeatModeToInt(com.muses.player.core.model.playback.RepeatMode.ONE))
         assertEquals(2, repeatModeToInt(com.muses.player.core.model.playback.RepeatMode.ALL))
     }

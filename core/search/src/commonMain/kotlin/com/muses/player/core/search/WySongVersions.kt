@@ -86,7 +86,7 @@ internal fun wyCatalogQualityLabel(song: JsonObject): String? {
 val OnlineSearchResult.qualityLabel: String?
     get() = runCatching {
         Json.parseToJsonElement(musicInfoJson).jsonObject.str("catalogQuality")
-            ?.takeIf { it in setOf("Hi-Res", "SQ", "HQ", "标准") }
+            ?.takeIf { it in setOf("Hi-Res", "SQ", "无损", "HQ", "标准") }?.let { com.muses.player.core.model.shortAudioQualityLabel(it) }
     }.getOrNull()
 
 /** 仅标记平台确认的原唱，翻唱和未知不展示，不从歌名文字推断。 */

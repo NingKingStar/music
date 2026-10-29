@@ -185,11 +185,13 @@ class DesktopQueueStateMachine {
 
 /** RepeatMode int ↔ 模型互转（int 口径对齐 Media3：OFF=0/ONE=1/ALL=2）。 */
 fun repeatModeFromInt(mode: Int): RepeatMode = when (mode) {
+    0 -> RepeatMode.NONE
     1 -> RepeatMode.ONE
     else -> RepeatMode.ALL
 }
 
 fun repeatModeToInt(mode: RepeatMode): Int = when (mode) {
+    RepeatMode.NONE -> 0
     RepeatMode.ONE -> 1
     RepeatMode.ALL -> 2
 }

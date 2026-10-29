@@ -76,7 +76,7 @@ fun SongSubtitleWithQuality(
             if (label != null || subtitle.isNotBlank()) Spacer(Modifier.width(5.dp))
         }
         if (label != null) {
-            SongQualityBadge(label)
+            SongQualityBadge(com.muses.player.core.model.shortAudioQualityLabel(label) ?: label)
             if (subtitle.isNotBlank()) Spacer(Modifier.width(5.dp))
         }
         if (subtitle.isNotBlank()) {
@@ -95,7 +95,7 @@ private fun SongQualityBadge(label: String) {
     // 保留 QQ 音乐的绿色、橙色与金色分档，使用柔和色块底，不加描边。
     val foreground = when (label) {
         "HQ" -> if (dark) Color(0xFF45D99A) else Color(0xFF20BC78)
-        "SQ" -> if (dark) Color(0xFFFFB15C) else Color(0xFFFF8A16)
+        "无损", "SQ" -> if (dark) Color(0xFFFFB15C) else Color(0xFFFF8A16)
         "Hi-Res" -> if (dark) Color(0xFFEAC66D) else Color(0xFFAB812B)
         else -> if (dark) Color(0xFFAEB2B8) else Color(0xFF777C83)
     }
@@ -140,7 +140,7 @@ private fun SongQualityBadge(label: String) {
         } else if (label == "FLAC" || label == "MP3") {
             FormatWordmark(label, foreground)
         } else {
-            Text(if (label == "Hi-Res") "HR" else label,
+            Text(label,
                 modifier = Modifier.semantics { contentDescription = label },
                 style = TextStyle(fontSize = 9.sp, lineHeight = 10.sp,
                     lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),

@@ -34,7 +34,7 @@ class CatalogMetadataTest {
             val result = OnlineSearchResult(platform, "1", "歌", null, null, null, null,
                 """{"catalogPerformance":"${info["catalogPerformance"]}","catalogQuality":"SQ"}""")
             assertEquals("原唱", result.performanceLabel)
-            assertEquals("SQ", result.qualityLabel)
+            assertEquals("无损", result.qualityLabel)
         }
     }
 }

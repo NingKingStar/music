@@ -23,7 +23,7 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 
 /** 设置页打开中的下载设置弹窗（null = 未打开）。 */
-private enum class DownloadSettingSheet { TARGET, QUALITY, PLAY_QUALITY, DOWNLOAD_MODE, DEVICE_DIRECTORY }
+private enum class DownloadSettingSheet { TARGET, QUALITY, PLAY_QUALITY, SPATIAL_QUALITY, SPATIAL_PLAY_QUALITY, DOWNLOAD_MODE, DEVICE_DIRECTORY }
 
 /**
  * 设置页「下载」分组：保存位置、下载品质、设备下载目录。
@@ -91,26 +91,40 @@ fun DownloadPreferencesSection() {
         },
     )
     MusesActionsSheet(
-        opened = sheet == DownloadSettingSheet.QUALITY,
-        onDismiss = { sheet = null },
+        opened = sheet == DownloadSettingSheet.QUALITY, onDismiss = { sheet = null },
         label = "下载品质",
-        items = LxQuality.entries.map { option ->
-            MusesActionItem(option.label) {
-                scope.launch { settings.setDownloadPreferredQuality(option.key) }
-                sheet = null
+        items = com.muses.player.core.lxsdk.musicQualitySelections.map { option ->
+            MusesActionItem(option.label + if (option.key == com.muses.player.core.lxsdk.qualitySelectionKey(quality)) "（当前）" else "") {
+                scope.launch { settings.setDownloadPreferredQuality(option.key) }; sheet = null
             }
-        },
+        } + MusesActionItem("空间音频 ›") { sheet = DownloadSettingSheet.SPATIAL_QUALITY },
     )
     MusesActionsSheet(
-        opened = sheet == DownloadSettingSheet.PLAY_QUALITY,
-        onDismiss = { sheet = null },
-        label = "在线播放优先音质",
-        items = LxQuality.entries.map { option ->
-            MusesActionItem(option.label) {
-                scope.launch { settings.setOnlinePreferredQuality(option.key) }
-                sheet = null
+        opened = sheet == DownloadSettingSheet.SPATIAL_QUALITY, onDismiss = { sheet = null },
+        label = "空间音频 · 按音源声明尝试",
+        items = com.muses.player.core.lxsdk.spatialQualitySelections.map { option ->
+            MusesActionItem(option.label + if (option.key == quality) "（当前）" else "") {
+                scope.launch { settings.setDownloadPreferredQuality(option.key) }; sheet = null
             }
-        },
+        } + MusesActionItem("返回音质选择") { sheet = DownloadSettingSheet.QUALITY },
+    )
+    MusesActionsSheet(
+        opened = sheet == DownloadSettingSheet.PLAY_QUALITY, onDismiss = { sheet = null },
+        label = "在线播放优先音质",
+        items = com.muses.player.core.lxsdk.musicQualitySelections.map { option ->
+            MusesActionItem(option.label + if (option.key == com.muses.player.core.lxsdk.qualitySelectionKey(playQuality)) "（当前）" else "") {
+                scope.launch { settings.setOnlinePreferredQuality(option.key) }; sheet = null
+            }
+        } + MusesActionItem("空间音频 ›") { sheet = DownloadSettingSheet.SPATIAL_PLAY_QUALITY },
+    )
+    MusesActionsSheet(
+        opened = sheet == DownloadSettingSheet.SPATIAL_PLAY_QUALITY, onDismiss = { sheet = null },
+        label = "空间音频 · 按音源声明尝试",
+        items = com.muses.player.core.lxsdk.spatialQualitySelections.map { option ->
+            MusesActionItem(option.label + if (option.key == playQuality) "（当前）" else "") {
+                scope.launch { settings.setOnlinePreferredQuality(option.key) }; sheet = null
+            }
+        } + MusesActionItem("返回音质选择") { sheet = DownloadSettingSheet.PLAY_QUALITY },
     )
     MusesActionsSheet(
         opened = sheet == DownloadSettingSheet.DOWNLOAD_MODE,

@@ -67,7 +67,7 @@ class PlatformSearchProviderTest {
         // MUSICRID 需剥掉 MUSIC_ 前缀（脚本侧要纯数字）
         assertEquals("193507024", r.songId)
         assertEquals("丑八怪 (Live)", r.name)
-        assertEquals("SQ", r.qualityLabel)
+        assertEquals("无损", r.qualityLabel)
         assertEquals("薛之谦&赵英俊", r.artist)
         assertEquals(22_000L, r.durationMs)
         assertNotNull(r.coverUrl)
@@ -116,7 +116,7 @@ class PlatformSearchProviderTest {
         assertEquals("tx", r.platform)
         assertEquals("001TQYtM47BGjK", r.songId)
         assertEquals("花海", r.name)
-        assertEquals("SQ", r.qualityLabel)
+        assertEquals("无损", r.qualityLabel)
         assertEquals("周杰伦", r.artist)
         assertEquals("叶惠美", r.album)
         assertEquals(254_000L, r.durationMs)
@@ -177,7 +177,7 @@ class PlatformSearchProviderTest {
         // 优先取无损 hash（音质更好）
         assertEquals("0A69169202DE95AAF24A9944CCF0730D", r.songId)
         assertEquals("晴天", r.name)
-        assertEquals("SQ", r.qualityLabel)
+        assertEquals("无损", r.qualityLabel)
         assertEquals("周杰伦", r.artist)
         assertEquals("叶惠美", r.album)
         assertEquals(269_000L, r.durationMs)

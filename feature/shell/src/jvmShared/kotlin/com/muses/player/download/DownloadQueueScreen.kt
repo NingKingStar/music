@@ -303,7 +303,7 @@ fun DownloadQueueScreen(onBack: () -> Unit, manager: DownloadManager = koinInjec
         opened = qualityId != null,
         onDismiss = { qualityId = null },
         label = "下载品质",
-        items = LxQuality.entries.map { quality ->
+        items = (com.muses.player.core.lxsdk.musicQualitySelections + com.muses.player.core.lxsdk.spatialQualitySelections).map { quality ->
             MusesActionItem(quality.label) {
                 qualityId?.let { manager.configure(it, quality = quality.key) }
                 qualityId = null
@@ -433,7 +433,7 @@ internal fun DownloadTarget.displayLabel(sources: List<Source>): String =
         ?.label
         ?: label
 
-internal fun qualityLabel(key: String): String = LxQuality.fromKey(key)?.label ?: key
+internal fun qualityLabel(key: String): String = com.muses.player.core.lxsdk.qualitySelectionLabel(key)
 
 internal fun formatBytes(bytes: Long): String =
     when {

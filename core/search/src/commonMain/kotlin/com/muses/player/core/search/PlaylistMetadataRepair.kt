@@ -12,7 +12,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.serialization.json.*
 
-fun needsSongMetadata(song: Song): Boolean = song.title.isBlank() || song.artist.isNullOrBlank() ||
+fun needsSongMetadata(song: Song): Boolean = song.title.isBlank() || song.title == "待补全歌曲" || song.artist.isNullOrBlank() ||
     song.album.isNullOrBlank() || song.durationMs <= 0 || song.coverUri.isNullOrBlank()
 
 /** 同平台编号补全；不改有效标题、手工内容、音质选择与原歌曲身份。 */
@@ -30,7 +30,7 @@ fun fillMissingSongMetadata(song: Song, result: OnlineSearchResult): Song {
     }
     val duration = song.durationMs.takeIf { it > 0 } ?: song.durationSec.takeIf { it > 0 }?.times(1000) ?: result.durationMs ?: 0
     return song.copy(
-        title = song.title.takeIf { it.isNotBlank() } ?: result.name,
+        title = song.title.takeIf { it.isNotBlank() && it != "待补全歌曲" } ?: result.name,
         artist = song.artist?.takeIf { it.isNotBlank() } ?: result.artist,
         album = song.album?.takeIf { it.isNotBlank() } ?: result.album,
         coverUri = song.coverUri?.takeIf { it.isNotBlank() } ?: result.coverUrl,
@@ -72,7 +72,20 @@ class PlaylistMetadataRepair(private val http: SearchHttp, private val search: O
                     permits.withPermit {
                         try {
                             withTimeoutOrNull(4_000) {
-                                val result = search.search("tx", "${song.title} ${song.artist.orEmpty()}", pageSize = 20).results
+                                val detail = try { withTimeoutOrNull(1_500) {
+                                    val info = Json.parseToJsonElement(ref.musicInfoJson).jsonObject
+                                    val mid = info.str("songmid") ?: return@withTimeoutOrNull null
+                                    val body = buildJsonObject {
+                                        put("req", buildJsonObject {
+                                            put("module", "music.pf_song_detail_svr"); put("method", "get_song_detail_yqq")
+                                            put("param", buildJsonObject { put("song_mid", mid); put("song_type", 0) })
+                                        })
+                                    }
+                                    http.parseObject(http.postJson("https://u.y.qq.com/cgi-bin/musicu.fcg", body.toString(), "https://y.qq.com/"))
+                                        .obj("req")?.obj("data")?.obj("track_info")?.let(::parseTxTrack)
+                                        ?.takeIf { OnlineTrackIdentity.matches(ref, it.toTrackRef(ref.sourceId)) }
+                                } } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
+                                val result = detail ?: search.search("tx", "${song.title} ${song.artist.orEmpty()}", pageSize = 20).results
                                     .firstOrNull { OnlineTrackIdentity.matches(ref, it.toTrackRef(ref.sourceId)) }
                                 lock.withLock { if (result != null) found[song.id] = result; checked++ }
                             }

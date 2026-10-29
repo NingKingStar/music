@@ -17,6 +17,6 @@ fun searchResultRank(song: OnlineSearchResult, keyword: String): Int {
     }
     val explicitVersion = listOf("live", "现场", "翻唱", "伴奏", "remix", "加速", "纯音乐").firstOrNull { it in query }
     val versionMatch = explicitVersion == null || explicitVersion in title
-    return relevance * 100 + (if (artist) 30 else 0) + (if (versionMatch) 10 else 0) +
+    return (if (song.lyricMatched) 500 else relevance * 100) + (if (artist) 30 else 0) + (if (versionMatch) 10 else 0) +
         (if (versionMatch && song.performanceLabel != null) 5 else 0)
 }

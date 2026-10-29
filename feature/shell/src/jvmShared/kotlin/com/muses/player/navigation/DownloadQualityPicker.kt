@@ -29,19 +29,18 @@ internal fun catalogDownloadQualities(path: String?): List<LxQuality> {
 internal fun DownloadQualityPicker(song: Song?, defaultQuality: String, onDismiss: () -> Unit, onChoose: (Song, String) -> Unit) {
     var showMore by remember(song?.path) { mutableStateOf(false) }
     val known = remember(song?.path) { catalogDownloadQualities(song?.path) }
-    val preferred = LxQuality.fromKey(defaultQuality) ?: LxQuality.DEFAULT
-    val initial = known.ifEmpty { listOf(preferred) }
-    val remaining = LxQuality.ordered().filterNot { it in initial }
-    fun choose(quality: LxQuality) { song?.let { onChoose(it, quality.key) } }
+    val preferred = com.muses.player.core.lxsdk.qualitySelectionKey(defaultQuality)
+    val initial = com.muses.player.core.lxsdk.musicQualitySelections
+    val remaining = com.muses.player.core.lxsdk.spatialQualitySelections
+    fun choose(quality: com.muses.player.core.lxsdk.QualitySelection) { song?.let { onChoose(it, quality.key) } }
     val items = if (showMore) {
         remaining.map { quality ->
             MusesActionItem("${quality.label} · 可用性待确认") { choose(quality) }
         } + MusesActionItem("返回") { showMore = false }
     } else {
         initial.map { quality ->
-            val status = if (known.isEmpty()) "可用性待确认" else "平台目录提供，下载时确认"
-            MusesActionItem("${quality.label} · $status" + if (quality == preferred) "（默认）" else "") { choose(quality) }
-        } + if (remaining.isNotEmpty()) listOf(MusesActionItem("尝试其他音质 ›") { showMore = true }) else emptyList()
+            MusesActionItem(quality.label + if (quality.key == preferred) "（默认）" else "") { choose(quality) }
+        } + MusesActionItem("空间音频 ›") { showMore = true }
     }
     MusesActionsSheet(
         opened = song != null,

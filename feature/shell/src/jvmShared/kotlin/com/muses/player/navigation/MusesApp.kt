@@ -577,6 +577,8 @@ private fun MusesAppContent(openSettingsRequest: Long) {
         val favoritesStore = org.koin.compose.koinInject<com.muses.player.core.data.repository.FavoriteSongsStore>()
         val favorites by favoritesStore.state.collectAsState()
         val playlistStore = org.koin.compose.koinInject<com.muses.player.core.data.repository.UserPlaylistStore>()
+        val metadataManager = org.koin.compose.koinInject<PlaylistMetadataManager>()
+        LaunchedEffect(metadataManager) { metadataManager.start() }
         var playlistSong by remember { mutableStateOf<Song?>(null) }
         val addSongToPlaylist: (Song) -> Unit = { song -> playlistSong = song }
         val downloadDuplicate by downloadManager.libraryDuplicatePrompt.collectAsState()

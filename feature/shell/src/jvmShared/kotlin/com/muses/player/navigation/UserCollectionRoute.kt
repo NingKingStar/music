@@ -49,7 +49,7 @@ internal fun UserCollectionRoute(collectionId: String, onBack: () -> Unit, onMan
     val settings = koinInject<SettingsRepository>()
     var deleteEntry by remember { mutableStateOf<com.muses.player.core.model.download.DownloadedSong?>(null) }
     var showBatchQuality by remember { mutableStateOf(false) }
-    var repairingMetadata by remember { mutableStateOf(false) }
+    val metadataManager = koinInject<PlaylistMetadataManager>()
     val searchHttp = koinInject<com.muses.player.core.search.http.SearchHttp>()
     val searchService = koinInject<com.muses.player.core.search.OnlineSearchService>()
     val preparingBatch by downloadManager.preparingPlaylistDownloads.collectAsState()
@@ -108,25 +108,14 @@ internal fun UserCollectionRoute(collectionId: String, onBack: () -> Unit, onMan
         onRemove = removeSong, removeLabel = if (isDownloaded) "删除下载" else if (isLiked) "从我喜欢移除" else "从当前歌单移除",
         onManageDownloads = if (isDownloaded) onManageDownloads else null,
         onRepairMetadata = if (selected != null) ({
-            if (!repairingMetadata) {
-                val expected = selected.tracks
-                repairingMetadata = true
-                scope.launch {
-                    try {
-                        val before = expected.map { it.toSong() }
-                        val result = com.muses.player.core.search.PlaylistMetadataRepair(searchHttp, searchService).inspect(before)
-                        playlists.applyMetadata(collectionId, expected, result.songs)
-                        val changed = before.zip(result.songs).count { (a, b) -> a != b }
-                        val pending = result.songs.count { com.muses.player.core.search.needsSongMetadata(it) }
-                        MusesSnackbar.show("已补全 "+changed+" 首，"+pending+" 首信息待补全" +
-                            if (result.timedOut) "；部分检查超时，可再次检查" else "；播放可用性未检测")
-                    } catch (e: CancellationException) { throw e }
-                    catch (_: Exception) { MusesSnackbar.show("检查未完成，原歌单已保留，请稍后重试") }
-                    finally { repairingMetadata = false }
-                }
-            }
+            perform { playlists.retryMetadata(collectionId); metadataManager.start() }
         }) else null,
-        repairingMetadata = repairingMetadata,
+        repairingMetadata = selected?.let { (it.followPreferredQuality || it.metadataRepairRequested) && it.metadataRepairVersion < 1 } == true,
+        metadataStatus = selected?.let { playlist ->
+            if ((playlist.followPreferredQuality || playlist.metadataRepairRequested) && playlist.metadataRepairVersion < 1)
+                "正在自动完善信息 · ${playlist.metadataRepairCursor}/${playlist.tracks.size}"
+            else playlist.tracks.count { com.muses.player.core.search.needsSongMetadata(it.toSong()) }.takeIf { it > 0 }?.let { "还有 $it 首信息待补全" }
+        },
         songStatus = { song -> if (selected != null && song.sourceType == SourceType.ONLINE &&
             com.muses.player.core.search.needsSongMetadata(song)) "信息待补全" else null },
         onDownloadAll = if (selected != null) ({ showBatchQuality = true }) else null,
@@ -137,7 +126,7 @@ internal fun UserCollectionRoute(collectionId: String, onBack: () -> Unit, onMan
             opened = true,
             onDismiss = { showBatchQuality = false },
             label = "全部下载 · 优先选择的音质，不可用时尝试降档",
-            items = LxQuality.ordered().map { quality ->
+            items = com.muses.player.core.lxsdk.musicQualitySelections.map { quality ->
                 MusesActionItem(quality.label + if (quality.key == downloadQuality) "（默认）" else "") {
                     showBatchQuality = false
                     downloadManager.downloadPlaylist(selected.tracks.asReversed().map { it.toSong() }, quality.key)
