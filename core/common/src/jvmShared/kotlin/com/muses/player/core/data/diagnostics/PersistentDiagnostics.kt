@@ -45,9 +45,28 @@ class PersistentDiagnostics(
     private val worker = Thread({
         while (!closed || queue.isNotEmpty()) {
             val item = try { queue.poll(200, TimeUnit.MILLISECONDS) } catch (_: InterruptedException) { null } ?: continue
-            try { item.line?.let { synchronized(lock) { append(it) } } }
-            catch (_: Throwable) { failures.incrementAndGet() }
-            finally { item.barrier?.countDown() }
+            val batch = ArrayList<Item>(64).apply { add(item) }
+            queue.drainTo(batch, 63)
+            synchronized(lock) {
+                var prepared = false
+                for (pending in batch) {
+                    try {
+                        pending.line?.let {
+                            // 同一批次只扫描一次历史文件、修复一次尾部，避免每条事件反复读取日志。
+                            if (!prepared) {
+                                check(directory.isDirectory || directory.mkdirs())
+                                prune()
+                                repairTail(File(directory, "diagnostic-0.jsonl"))
+                                prepared = true
+                            }
+                            append(it)
+                        }
+                    } catch (_: Throwable) {
+                        prepared = false
+                        failures.incrementAndGet()
+                    } finally { pending.barrier?.countDown() }
+                }
+            }
         }
     }, "本地诊断写入").apply { isDaemon = true; start() }
 
@@ -150,10 +169,7 @@ class PersistentDiagnostics(
         }
     }
     private fun append(bytes: ByteArray) {
-        check(directory.isDirectory || directory.mkdirs())
-        prune()
         val active = File(directory, "diagnostic-0.jsonl")
-        repairTail(active)
         if (active.length() + bytes.size > limit) {
             val last = File(directory, "diagnostic-${count - 1}.jsonl")
             if (last.exists()) { check(last.delete()); rotated.incrementAndGet() }
