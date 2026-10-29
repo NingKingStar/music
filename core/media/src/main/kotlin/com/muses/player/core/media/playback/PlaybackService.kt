@@ -301,6 +301,14 @@ class PlaybackService : MediaSessionService() {
 
         // 播放持久化（任务 08-25-native-playback-persistence / P1）
         player.addListener(persistenceListener)
+        player.addAnalyticsListener(object : androidx.media3.exoplayer.analytics.AnalyticsListener {
+            override fun onAudioPositionAdvancing(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, playoutStartSystemTimeMs: Long) {
+                com.muses.player.core.data.diagnostics.Diagnostics.record("audio_position_advancing", mapOf("session" to "未知", "song" to "未知", "position_ms" to eventTime.currentPlaybackPositionMs.toString()))
+            }
+            override fun onAudioUnderrun(eventTime: androidx.media3.exoplayer.analytics.AnalyticsListener.EventTime, bufferSize: Int, bufferSizeMs: Long, elapsedSinceLastFeedMs: Long) {
+                com.muses.player.core.data.diagnostics.Diagnostics.record("audio_underrun", mapOf("session" to "未知", "song" to "未知", "bytes" to bufferSize.toString(), "elapsed_ms" to elapsedSinceLastFeedMs.toString()))
+            }
+        })
         // 09-07 通知歌词模式：监听开关 + 歌词 + 播放位置，动态替换 MediaMetadata
         startNotificationLyricsMonitoring(player)
         startDesktopLyricsMonitoring(player)
@@ -787,17 +795,45 @@ class PlaybackService : MediaSessionService() {
     }
 
     /** 持久化监听：转场/播放态切换/seek 触发节流保存；转场登记最近播放 */
+    /** 媒体回调没有可靠的播放代次来源；只记实际目标，会话始终未知。 */
+    private fun recordPlayback(event: String, fields: Map<String, String>, songId: String? = mediaSession?.player?.currentMediaItem?.mediaId) {
+        com.muses.player.core.data.diagnostics.Diagnostics.record(event,
+            fields + mapOf("song" to (songId?.let { com.muses.player.core.data.diagnostics.Diagnostics.anonymous(it) } ?: "未知"), "session" to "未知"))
+    }
+
     private val persistenceListener = object : Player.Listener {
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            val p = mediaSession?.player ?: return
+            recordPlayback("player_state", mapOf(
+                "state" to when(playbackState) { Player.STATE_READY -> "ready"; Player.STATE_BUFFERING -> "buffering"; Player.STATE_ENDED -> "ended"; else -> "idle" },
+                "song" to com.muses.player.core.data.diagnostics.Diagnostics.anonymous(p.currentMediaItem?.mediaId.orEmpty()),
+                "position_ms" to p.currentPosition.toString(), "duration_ms" to p.duration.toString()))
+        }
+        override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+            recordPlayback("play_intent_changed", mapOf("state" to if(playWhenReady) "playing" else "paused", "reason" to reason.toString()))
+        }
+        override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+            recordPlayback("media_transition", mapOf("next" to com.muses.player.core.data.diagnostics.Diagnostics.anonymous(mediaItem?.mediaId.orEmpty()), "reason" to reason.toString()), mediaItem?.mediaId)
+        }
+        override fun onAudioSessionIdChanged(audioSessionId: Int) {
+            recordPlayback("audio_session", mapOf("audio_output" to "未知"))
+        }
+
         override fun onPositionDiscontinuity(
             oldPosition: Player.PositionInfo,
             newPosition: Player.PositionInfo,
             reason: Int,
         ) {
+            recordPlayback("position_discontinuity", mapOf(
+                "reason" to reason.toString(), "previous" to com.muses.player.core.data.diagnostics.Diagnostics.anonymous(oldPosition.mediaItem?.mediaId.orEmpty()),
+                "next" to com.muses.player.core.data.diagnostics.Diagnostics.anonymous(newPosition.mediaItem?.mediaId.orEmpty()),
+                "position_ms" to oldPosition.positionMs.toString()), oldPosition.mediaItem?.mediaId)
             if (reason != Player.DISCONTINUITY_REASON_AUTO_TRANSITION) return
             val oldId = oldPosition.mediaItem?.mediaId ?: return
             val song = com.muses.player.core.model.online.OnlineTrackSession.snapshot.value[oldId] ?: return
             val expected = song.durationMs
             val played = oldPosition.positionMs
+            recordPlayback("auto_transition_duration", mapOf("expected_ms" to expected.toString(), "position_ms" to played.toString(), "reason" to "auto"), oldId)
             if (expected >= 90_000L && played > 0L && played + 30_000L < expected && played < expected / 2) {
                 errorLogStore.log(
                     ErrorLogStore.Level.WARN, "Playback",
@@ -813,11 +849,15 @@ class PlaybackService : MediaSessionService() {
          */
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             val player = mediaSession?.player ?: return
+            recordPlayback("player_error", mapOf("code" to error.errorCode.toString(),
+                "position_ms" to player.currentPosition.toString(), "duration_ms" to player.duration.toString(),
+                "http" to (PlaybackErrorCopy.httpResponseCode(error)?.toString() ?: "未知")))
             val resourceChanged = generateSequence<Throwable>(error) { it.cause }
                 .any { it is OnlineResourceChangedException }
             val now = android.os.SystemClock.elapsedRealtime()
             val currentId = player.currentMediaItem?.mediaId
             if (resourceChanged && resourceRecoveryGuard.shouldRecover(currentId, now)) {
+                recordPlayback("recovery_decision", mapOf("reason" to "resource_changed", "position_ms" to player.currentPosition.toString()))
                 val position = player.currentPosition.coerceAtLeast(0L)
                 val index = player.currentMediaItemIndex
                 val shouldPlay = player.playWhenReady
@@ -851,6 +891,7 @@ class PlaybackService : MediaSessionService() {
                     "音频封装无法识别，排除当前地址后重建重试（同曲，不跳歌）",
                     error,
                 )
+                recordPlayback("recovery_decision", mapOf("reason" to "container", "position_ms" to player.currentPosition.toString()))
                 onlineResolverRef?.rejectPlayableUrl(opened.second)
                 val position = player.currentPosition.coerceAtLeast(0L)
                 val index = player.currentMediaItemIndex
@@ -884,11 +925,13 @@ class PlaybackService : MediaSessionService() {
                     error,
                 )
                 player.stop()
+                recordPlayback("recovery_decision", mapOf("reason" to "rate_limited", "position_ms" to player.currentPosition.toString()))
                 recoveryController.setError(PlaybackErrorCopy.RATE_LIMITED_RETRY)
                 return
             }
             if (httpCode in 500..599) {
                 player.stop()
+                recordPlayback("recovery_decision", mapOf("reason" to "server_error", "position_ms" to player.currentPosition.toString()))
                 recoveryController.setError(errorCopy)
                 return
             }
@@ -901,6 +944,7 @@ class PlaybackService : MediaSessionService() {
             val order = mediaIndices.map { player.getMediaItemAt(it).mediaId }
             val candidateIndex = recoveryController.selectNextCandidate(order, mediaIndices.indexOf(player.currentMediaItemIndex))
             if (candidateIndex != null) {
+                recordPlayback("recovery_decision", mapOf("reason" to "next", "position_ms" to player.currentPosition.toString()))
                 recoveryController.recordAttempt(order[candidateIndex])
                 recoveryController.clearError()
                 com.muses.player.core.ui.components.MusesSnackbar.show(
@@ -1001,6 +1045,7 @@ class PlaybackService : MediaSessionService() {
 
         /** 播放/暂停翻转：听歌时长结算与起段的主要驱动（切歌另见 [onEvents] 转场分支） */
         override fun onIsPlayingChanged(isPlaying: Boolean) {
+            recordPlayback("is_playing", mapOf("state" to if(isPlaying) "playing" else "paused"))
             val player = mediaSession?.player ?: return
             serviceScope.launch {
                 playStatsTracker.onPlaybackState(player.currentMediaItem?.mediaId, isPlaying)

@@ -4,6 +4,7 @@
 
     <!-- WebDAV 网络访问 -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <!-- 本地库扫描：Android 13+ 细粒度音频权限（运行时请求在设置/音源页接线） -->

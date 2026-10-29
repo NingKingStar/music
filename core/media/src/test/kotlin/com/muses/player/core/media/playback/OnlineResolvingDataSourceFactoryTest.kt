@@ -399,6 +399,92 @@ class OnlineResolvingDataSourceFactoryTest {
         assertTrue(stages != null && stages!!.containsKey("findDownloaded"))
     }
 
+    @Test
+    fun `解析进行中切歌后旧请求读完仍归入原会话`() = withDiagnosticStore { store, events ->
+        val diagnostics = com.muses.player.core.data.diagnostics.Diagnostics
+        store.beginPlayback("甲", "user"); store.bindTrack(onlineSpec().uri.toString(), "甲")
+        val first = store.context()
+        val source = factory(RecordingDataSource("abcd".toByteArray()), resolveTrack = {
+            assertEquals(first["session"], diagnostics.correlation()["session"])
+            store.beginPlayback("乙", "user")
+            assertEquals(first["session"], diagnostics.correlation()["session"])
+            OnlinePlayableUrl("https://cdn.test/audio?signature=private")
+        }).createDataSource()
+        source.open(onlineSpec()); source.read(ByteArray(4), 0, 4); source.read(ByteArray(4), 0, 4); source.close()
+        assertTrue(events.any { it.first == "data_eof" })
+        assertTrue(events.filter { it.first.startsWith("data_") || it.first.startsWith("resolve_") }
+            .all { it.second["session"] == first["session"] && it.second["song"] == first["song"] })
+        assertTrue(events.none { it.second.values.any { value -> value.contains("signature=private") } })
+    }
+
+    @Test
+    fun `点击乙后甲分段重开不能借用乙的会话`() = withDiagnosticStore { store, events ->
+        store.beginPlayback("甲", "user"); store.bindTrack(onlineSpec().uri.toString(), "甲")
+        val first = store.context()
+        val source = factory(RecordingDataSource("abcdefgh".toByteArray())).createDataSource()
+        source.open(onlineSpec()); source.read(ByteArray(2), 0, 2); source.close()
+        store.beginPlayback("乙", "user")
+        val second = store.context(); events.clear()
+        source.open(onlineSpec().buildUpon().setPosition(2).build()); source.read(ByteArray(2), 0, 2); source.close()
+        assertTrue(events.any { it.first == "data_open_start" && it.second["range_start"] == "2" })
+        assertTrue(events.none { it.second["session"] == second["session"] || it.second["song"] == second["song"] })
+        assertTrue(events.all { it.second["session"] == first["session"] })
+    }
+
+    @Test
+    fun `不同曲目预加载不能借用当前歌曲会话`() = withDiagnosticStore { store, events ->
+        val nextTrack = OnlineTrackRef("wy", "{\"id\":\"next\"}", "script")
+        store.bindTrack(onlineSpec().uri.toString(), "甲"); store.bindTrack(nextTrack.encode(), "乙")
+        store.beginPlayback("甲", "user"); val first = store.context()
+        val source = factory(RecordingDataSource()).createDataSource()
+        source.open(DataSpec.Builder().setUri(nextTrack.encode()).build()); source.close()
+        assertTrue(events.any { it.first == "resolve_start" })
+        assertTrue(events.none { it.second["session"] == first["session"] || it.second["song"] == first["song"] })
+        assertTrue(events.all { it.second["song"] == store.anonymous("乙") })
+    }
+
+    @Test
+    fun `解析失败后关闭不把开机时长记录为请求耗时`() = withDiagnosticStore { _, events ->
+        val source = factory(RecordingDataSource(), resolveTrack = { throw IOException("解析失败") }).createDataSource()
+        try { source.open(onlineSpec()); fail("预期解析失败") } catch (_: IOException) { }
+        source.close()
+        val elapsed = events.filter { it.first == "data_close" }.mapNotNull { it.second["elapsed_ms"] }
+        assertTrue(elapsed.all { it == "未知" || (it.toLongOrNull()?.let { ms -> ms in 0..1000 } == true) })
+    }
+
+    @Test
+    fun `甲一数据源创建后同歌甲二意图再首开不能借甲二会话`() = withDiagnosticStore { store, events ->
+        store.bindTrack(onlineSpec().uri.toString(), "甲")
+        store.beginPlayback("甲", "user"); val first = store.context()
+        val source = factory(RecordingDataSource()).createDataSource()
+        store.beginPlayback("甲", "user"); val second = store.context()
+        assertFalse(first["session"] == second["session"])
+        source.open(onlineSpec()); source.close()
+        assertTrue(events.any { it.first == "resolve_start" })
+        assertTrue(events.none { it.second["session"] == second["session"] })
+        assertTrue(events.all { it.second["song"] == first["song"] })
+    }
+    private fun withDiagnosticStore(block: (com.muses.player.core.data.diagnostics.PersistentDiagnostics, MutableList<Pair<String, Map<String, String>>>) -> Unit) {
+        val diagnostics = com.muses.player.core.data.diagnostics.Diagnostics
+        val priorSink = diagnostics.sink; val priorContext = diagnostics.contextProvider; val priorIdentify = diagnostics.identify
+        val priorBinding = diagnostics.trackBinding; val priorTrackContext = diagnostics.trackContextProvider
+        val priorCapturedContext = diagnostics.capturedTrackContextProvider
+        val directory = java.nio.file.Files.createTempDirectory("数据源诊断测试").toFile()
+        val events = mutableListOf<Pair<String, Map<String, String>>>()
+        com.muses.player.core.data.diagnostics.PersistentDiagnostics(directory).use { store ->
+            try {
+                diagnostics.contextProvider = store::context; diagnostics.identify = store::anonymous
+                diagnostics.trackBinding = store::bindTrack; diagnostics.trackContextProvider = store::contextForTrack
+                diagnostics.capturedTrackContextProvider = store::contextForTrack
+                diagnostics.sink = { event, fields -> events += event to fields }
+                block(store, events)
+            } finally {
+                diagnostics.sink = priorSink; diagnostics.contextProvider = priorContext; diagnostics.identify = priorIdentify
+                diagnostics.trackBinding = priorBinding; diagnostics.trackContextProvider = priorTrackContext
+                diagnostics.capturedTrackContextProvider = priorCapturedContext
+            }
+        }
+    }
     private fun onlineSpec() = DataSpec.Builder().setUri(OnlineTrackRef("wy", "{}", "script").encode()).build()
 
     private fun factory(upstream: RecordingDataSource,

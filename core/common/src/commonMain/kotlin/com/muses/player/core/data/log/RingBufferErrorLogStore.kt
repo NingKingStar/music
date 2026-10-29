@@ -34,6 +34,9 @@ class RingBufferErrorLogStore constructor() : ErrorLogStore, ErrorLogCrashPersis
     override val latestSummary: StateFlow<String?> = latestSummaryInternal.asStateFlow()
 
     override fun log(level: ErrorLogStore.Level, tag: String, message: String, throwable: Throwable?) {
+        com.muses.player.core.data.diagnostics.Diagnostics.record("legacy_error", mapOf("session" to "未知", "song" to "未知",
+            "code" to (throwable?.let { it::class.simpleName?.hashCode() } ?: 0).toString(),
+        ))
         val fullMessage = if (throwable != null) {
             message + "\n" + throwable.stackTraceToString()
         } else {

@@ -1,5 +1,6 @@
 package com.muses.player.core.lxsdk
 
+import com.muses.player.core.data.diagnostics.Diagnostics
 import com.muses.player.core.model.online.OnlinePlayableUrl
 import com.muses.player.core.model.online.OnlineResolveException
 import com.muses.player.core.model.online.OnlineTrackIdentity
@@ -256,6 +257,8 @@ class LxOnlineTrackResolver(
         exactQuality: Boolean,
         stages: MutableMap<String, Long>,
     ): OnlinePlayableUrl {
+        val correlation = Diagnostics.correlation()
+        Diagnostics.record("resolve_attempt", correlation + mapOf("platform" to ref.platform, "quality" to quality?.key.orEmpty(), "result" to "resolve"))
         val expectedDurationMs = ref.expectedDurationMs()
         var probeMs = 0L
         val attemptStart = TimeSource.Monotonic.markNow()
@@ -271,13 +274,16 @@ class LxOnlineTrackResolver(
                         urlProbe == null -> true
                         else -> {
                             val probeStart = TimeSource.Monotonic.markNow()
+                            Diagnostics.record("probe_start", correlation + mapOf("resource" to Diagnostics.anonymous(url)))
                             val ok = withTimeoutOrNull(probeTimeoutMs) { urlProbe.canOpen(url, expectedDurationMs) } == true
+                            Diagnostics.record("probe_result", correlation + mapOf("result" to if(ok) "success" else "failure", "elapsed_ms" to probeStart.elapsedNow().inWholeMilliseconds.toString()))
                             probeMs += probeStart.elapsedNow().inWholeMilliseconds
                             ok
                         }
                     }
                 },
             )
+            Diagnostics.record("resolution_success", correlation + mapOf("quality" to result.quality?.key.orEmpty(), "result" to "success"))
             OnlinePlayableUrl(url = result.url, quality = result.quality?.key, sourceName = result.sourceName)
         } catch (e: CancellationException) {
             throw e
@@ -290,6 +296,7 @@ class LxOnlineTrackResolver(
         } finally {
             // 失败与成功的阶段都要累加，否则日志里的 script/probe 只剩余最后一次尝试。
             val elapsed = attemptStart.elapsedNow().inWholeMilliseconds
+            Diagnostics.record("resolve_attempt_end", correlation + mapOf("elapsed_ms" to elapsed.toString(), "platform" to ref.platform))
             stages["script"] = (stages["script"] ?: 0L) + (elapsed - probeMs).coerceAtLeast(0L)
             stages["probe"] = (stages["probe"] ?: 0L) + probeMs
             stages["attempts"] = (stages["attempts"] ?: 0L) + 1
