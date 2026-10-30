@@ -10,6 +10,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import top.yukonga.miuix.kmp.basic.Icon
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -164,6 +169,12 @@ fun CollectionSongsScreen(
     songStatus: (Song) -> String? = { null },
 ) {
     var query by rememberSaveable(title) { mutableStateOf("") }
+    var showSearch by rememberSaveable(title) { mutableStateOf(false) }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    LaunchedEffect(showSearch) {
+        if (!showSearch) { focusManager.clearFocus(); keyboard?.hide() }
+    }
     var actionSong by remember { mutableStateOf<Song?>(null) }
     var showMetadataActions by remember { mutableStateOf(false) }
     if (showMetadataActions) MusesActionsSheet(opened = true, onDismiss = { showMetadataActions = false },
@@ -186,8 +197,14 @@ fun CollectionSongsScreen(
                     imageVector = TablerIcons.MoreHorizontal, contentDescription = "歌单更多操作")
 
             },
-            bottomContent = {
-                Column(Modifier.padding(horizontal = 16.dp)) {
+        ) },
+    ) { padding ->
+        LazyColumn(
+            Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp + LocalBottomChromePadding.current),
+        ) {
+            item(key = "cover") {
+                Column(Modifier.padding(horizontal = 8.dp)) {
                     Row(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         MusesCover(songs.firstOrNull { !it.coverUri.isNullOrBlank() }?.coverUri, size = 84.dp)
                         Column(Modifier.weight(1f).padding(start = 16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -195,28 +212,36 @@ fun CollectionSongsScreen(
                             Text("${songs.size} 首", color = MiuixTheme.colorScheme.onBackgroundVariant)
                         }
                     }
-                    Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        MusesContentAction(if (query.isNotBlank()) "播放结果" else "播放全部", {
-                            visible.firstOrNull()?.let { onPlay(it, visible) }
-                        }, Modifier.weight(1f), primary = true, enabled = visible.isNotEmpty(), icon = TablerIcons.PlayFill)
-                        onDownloadAll?.let { download -> MusesContentAction("全部下载", download, enabled = downloadAllEnabled, icon = TablerIcons.Download) }
-                        onManageDownloads?.let { manage -> MusesContentAction("下载管理", manage, icon = TablerIcons.Download) }
-                    }
                     if (metadataStatus != null || repairingMetadata) Text(metadataStatus ?: "正在自动完善信息…", color = MiuixTheme.colorScheme.onBackgroundVariant)
-                    LibrarySearchField(query, { query = it }, "搜索当前列表", onCancel = { query = "" })
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (query.isNotBlank()) "找到 ${visible.size} 首 / 共 ${songs.size} 首" else "${songs.size} 首",
-                            modifier = Modifier.weight(1f), color = MiuixTheme.colorScheme.onBackgroundVariant)
-
+                }
+            }
+            stickyHeader(key = "actions") {
+                Column(Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.surface).padding(horizontal = 8.dp)) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable(enabled = visible.isNotEmpty()) {
+                            visible.firstOrNull()?.let { onPlay(it, visible) }
+                        }.heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(32.dp).clip(RoundedCornerShape(16.dp)).background(MiuixTheme.colorScheme.onSurface), contentAlignment = Alignment.Center) {
+                                Icon(TablerIcons.PlayFill, null, tint = MiuixTheme.colorScheme.surface, modifier = Modifier.size(18.dp))
+                            }
+                            Text(if (query.isNotBlank()) "播放结果" else "播放全部", Modifier.padding(start = 9.dp), fontWeight = FontWeight.Medium)
+                            Text(" · ${visible.size}", color = MiuixTheme.colorScheme.onBackgroundVariant)
+                        }
+                        MusesIconButton(onClick = { showSearch = !showSearch; if (!showSearch) query = "" },
+                            imageVector = TablerIcons.Search, contentDescription = if (showSearch) "收起列表搜索" else "搜索当前列表")
+                        onDownloadAll?.let { download -> MusesIconButton(onClick = download, enabled = downloadAllEnabled,
+                            imageVector = TablerIcons.Download, contentDescription = "选择歌曲下载") }
+                        onManageDownloads?.let { manage -> MusesIconButton(onClick = manage,
+                            imageVector = TablerIcons.Download, contentDescription = "下载管理") }
+                    }
+                    AnimatedVisibility(showSearch, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                        Column(Modifier.padding(bottom = 8.dp)) {
+                            LibrarySearchField(query, { query = it }, "搜索当前列表", onCancel = { query = ""; showSearch = false }, autoFocus = true)
+                            if (query.isNotBlank()) Text("找到 ${visible.size} 首 / 共 ${songs.size} 首", modifier = Modifier.padding(top = 6.dp), color = MiuixTheme.colorScheme.onBackgroundVariant)
+                        }
                     }
                 }
-            },
-        ) },
-    ) { padding ->
-        LazyColumn(
-            Modifier.fillMaxSize().padding(padding),
-            contentPadding = PaddingValues(start = 8.dp, end = 8.dp, bottom = 24.dp + LocalBottomChromePadding.current),
-        ) {
+            }
             if (visible.isEmpty()) item {
                 Text(
                     if (!loaded) "正在加载…" else if (query.isNotBlank()) "没有找到匹配歌曲" else "这里还没有歌曲",

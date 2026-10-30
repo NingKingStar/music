@@ -49,6 +49,7 @@ internal fun UserCollectionRoute(collectionId: String, onBack: () -> Unit, onMan
     val settings = koinInject<SettingsRepository>()
     var deleteEntry by remember { mutableStateOf<com.muses.player.core.model.download.DownloadedSong?>(null) }
     var showBatchQuality by remember { mutableStateOf(false) }
+    var batchSelection by remember(collectionId) { mutableStateOf<PlaylistDownloadSelection?>(null) }
     val metadataManager = koinInject<PlaylistMetadataManager>()
     val searchHttp = koinInject<com.muses.player.core.search.http.SearchHttp>()
     val searchService = koinInject<com.muses.player.core.search.OnlineSearchService>()
@@ -118,21 +119,34 @@ internal fun UserCollectionRoute(collectionId: String, onBack: () -> Unit, onMan
         },
         songStatus = { song -> if (selected != null && song.sourceType == SourceType.ONLINE &&
             com.muses.player.core.search.needsSongMetadata(song)) "信息待补全" else null },
-        onDownloadAll = if (selected != null) ({ showBatchQuality = true }) else null,
+        onDownloadAll = if (selected != null) ({
+            batchSelection = PlaylistDownloadSelection.from(selected.tracks.asReversed().map { it.toSong() })
+            showBatchQuality = false
+        }) else null,
         downloadAllEnabled = selected?.tracks?.isNotEmpty() == true && !preparingBatch,
     )
-    if (showBatchQuality && selected != null) {
+    batchSelection?.let { selection ->
+        PlaylistDownloadPicker(selection, onChange = { batchSelection = it },
+            onDismiss = { if (showBatchQuality) showBatchQuality = false else batchSelection = null },
+            onDownload = { if (selection.selectedIds.isNotEmpty() && !preparingBatch) showBatchQuality = true },
+            qualityContent = {
+        if (showBatchQuality) {
         MusesActionsSheet(
             opened = true,
             onDismiss = { showBatchQuality = false },
-            label = "全部下载 · 优先选择的音质，不可用时尝试降档",
+            label = "下载 ${selection.selectedIds.size} 首 · 选择音质",
+            renderInRootScaffold = false,
             items = com.muses.player.core.lxsdk.musicQualitySelections.map { quality ->
                 MusesActionItem(quality.label + if (quality.key == downloadQuality) "（默认）" else "") {
                     showBatchQuality = false
-                    downloadManager.downloadPlaylist(selected.tracks.asReversed().map { it.toSong() }, quality.key)
+                    val entries = selection.selectedSongs
+                    batchSelection = null
+                    if (entries.isNotEmpty() && !preparingBatch) downloadManager.downloadPlaylist(entries, quality.key)
                 }
             },
         )
+        }
+        })
     }
     deleteEntry?.let { DeleteDownloadedSongDialog(it, downloadManager) { deleteEntry = null } }
 }

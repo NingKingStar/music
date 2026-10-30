@@ -32,12 +32,14 @@ fun MusesActionsSheet(
     label: String,
     items: List<MusesActionItem>,
     songInfo: MusesActionSongInfo? = null,
+    renderInRootScaffold: Boolean = true,
 ) {
     val scheme = MiuixTheme.colorScheme
     OverlayBottomSheet(
         show = opened,
         title = if (songInfo == null) label else null,
         onDismissRequest = onDismiss,
+        renderInRootScaffold = renderInRootScaffold,
         content = {
             Column {
                 songInfo?.let { MusesActionSongHeader(it) }

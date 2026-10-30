@@ -107,6 +107,7 @@ object TablerIcons {
     val Add: ImageVector = Tabler.Outline.Plus
     val Remove: ImageVector = Tabler.Outline.Minus
     val CheckCircle: ImageVector = Tabler.Outline.CircleCheck
+    val RadioButtonUnchecked: ImageVector = Tabler.Outline.Circle
     val Warning: ImageVector = Tabler.Outline.AlertTriangle
     val Error: ImageVector = Tabler.Outline.CircleX
 }

@@ -28,6 +28,7 @@ import androidx.compose.foundation.text.BasicTextField
 import top.yukonga.miuix.kmp.basic.Icon
 import com.muses.player.core.ui.components.MarqueeText as Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -157,12 +158,16 @@ fun LibrarySearchField(
     placeholder: String,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
+    autoFocus: Boolean = false,
 ) {
     val scheme = MiuixTheme.colorScheme
     var focused by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(autoFocus) {
+        if (autoFocus) { focusRequester.requestFocus(); keyboard?.show() }
+    }
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,

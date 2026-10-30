@@ -11,6 +11,11 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import com.muses.player.core.ui.icons.TablerIcons
 import com.muses.player.core.ui.theme.MusesTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.saveable.SaveableStateHolder
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -458,9 +463,19 @@ fun MusesApp(openSettingsRequest: Long = 0L) {
 private fun MusesAppContent(openSettingsRequest: Long) {
         // miuix-nav 返回栈（类型化路由，存栈恢复经 kotlinx.serialization；替代 CMP Navigation）
         // 启动落地首页（探索 = 排行榜 + 猜你喜欢）
-        val backStack = rememberNavBackStack<MusesRoute>(MusesRoute.Home)
+        val backStack = rememberNavBackStack<MusesRoute>(MusesRoute.Tabs)
+        val tabPager = rememberPagerState(pageCount = { 3 })
+        val tabStateHolder = rememberSaveableStateHolder()
+        val tabScope = rememberCoroutineScope()
+        var tabAnimation by remember { mutableStateOf<Job?>(null) }
         // 当前栈顶（SnapshotStateList 读取即订阅，路由变化自动重组；对照原 currentBackStackEntryAsState）
-        val currentKey = backStack.lastOrNull()
+        LaunchedEffect(Unit) {
+            val legacyPage = mainTabDestinations.indexOfFirst { it.routeKey == backStack.firstOrNull() }
+            if (legacyPage >= 0) {
+                tabPager.scrollToPage(legacyPage)
+                backStack[0] = MusesRoute.Tabs
+            }
+        }
 
         // 底部迷你条和导航胶囊在手机、平板上共用。
         val viewModel: MainViewModel = koinViewModel()
@@ -605,11 +620,17 @@ private fun MusesAppContent(openSettingsRequest: Long) {
         val snackbarHostState = remember { SnackbarHostState() }
 
         // 手机和平板共用「探索 / 歌单 / 我的」三个底部入口。
-        val bottomItems = listOf(
-            NavDestination.Home.toNavItem(currentKey, backStack),
-            NavDestination.Songs.toNavItem(currentKey, backStack),
-            NavDestination.Mine.toNavItem(currentKey, backStack),
-        )
+        val bottomItems = mainTabDestinations.mapIndexed { page, destination ->
+            MusesNavItem(icon = destination.icon, label = destination.label,
+                active = page == tabPager.currentPage,
+                onClick = {
+                    tabAnimation?.cancel()
+                    backStack.popTo(MusesRoute.Tabs)
+                    tabAnimation = tabScope.launch {
+                        tabPager.animateScrollToPage(page, animationSpec = tween(280, easing = FastOutSlowInEasing))
+                    }
+                })
+        }
 
         val observedNowPlaying by viewModel.nowPlaying.collectAsState()
         val nowPlaying = observedNowPlaying?.takeIf { it.songId == currentSongId }
@@ -642,7 +663,7 @@ private fun MusesAppContent(openSettingsRequest: Long) {
         // 路由变化时重置为展开态（对齐 Halcyon 的 LaunchedEffect(currentRoute, canCompact)）：
         // 否则从列表页滚着进子页（如在线搜索/详情）时，底栏会带着上一页的融合态打开，
         // 底栏显示成三部分而非完整导航。
-        LaunchedEffect(currentKey) { bottomDockCompact = false }
+        LaunchedEffect(backStack.lastOrNull(), tabPager.currentPage) { bottomDockCompact = false }
         // 融合过渡进度（借鉴 Halcyon）：弹簧进度驱动导航图标缩放，
         // 让「两行 ↔ 一行」的切换不再是一帧跳变（Halcyon 用 spring(0.88, 520)）。
         val compactProgress by animateFloatAsState(
@@ -805,7 +826,8 @@ private fun MusesAppContent(openSettingsRequest: Long) {
                 backStack.pop()
             }
             TabsLayout {
-                AppNavHost(backStack, scrapeVm)
+                AppNavHost(backStack, scrapeVm, tabPager, tabStateHolder,
+                    tabsSwipeEnabled = !playerOverlayMounted && !showQueueOverlay && downloadDuplicate == null && playlistSong == null && qualityDownloadSong == null)
             }
             // 队列走 MusesBottomSheet（miuix OverlayBottomSheet）：必须组合在 Scaffold 内容层级内，
             // 根弹窗宿主（LocalRootDialogStates 由 Scaffold 提供）才能接管渲染；之前跟沉浸页一样放
@@ -1035,17 +1057,6 @@ private const val PlayerOpenDurationMillis = 380
 private fun Modifier.reportMiniBarBounds(onBounds: (Rect) -> Unit): Modifier =
     onGloballyPositioned { onBounds(it.boundsInWindow()) }
 
-/** 导航项组装（图标/文案/激活判定均来自 NavDestination 的 Web 层映射） */
-private fun NavDestination.toNavItem(
-    currentKey: NavKey?,
-    backStack: NavBackStack,
-): MusesNavItem = MusesNavItem(
-    icon = icon,
-    label = label,
-    active = this == activeDestination(backStack),
-    onClick = { navigateToTab(backStack, this) },
-)
-
 /**
  * 幂等 push：栈顶即目标则不动（单例），否则先移除同值 key 再压栈。
  * miuix-nav 同值重复 push 会在 reconcile 直接抛 IllegalArgumentException，
@@ -1069,28 +1080,14 @@ private fun NavBackStack.popTo(key: NavKey) {
     while (lastIndex > targetIndex) removeAt(lastIndex)
 }
 
-/**
- * 切 tab：主页单例替换 + 点当前 tab 直接回主页。
- *
- * - 目标已在栈内（含正处其子页面时点本 tab）：弹到目标之上全清，直接回到该主页；
- * - 切到别的 tab：整栈替换为新主页单例（先 add 再从头清，全程非空，miuix-nav 空栈非法）；
- * - 子页面栈不跨 tab 保留（列表由 flow 重载，滚动回到顶部），切走即丢弃，返回时逐级弹栈。
- */
-private fun navigateToTab(backStack: NavBackStack, destination: NavDestination) {
-    val target = destination.routeKey
-    if (backStack.contains(target)) {
-        while (backStack.lastOrNull() != target) backStack.removeAt(backStack.lastIndex)
-        return
-    }
-    backStack.add(target)
-    while (backStack.size > 1) backStack.removeAt(0)
-}
-
 @Composable
 private fun AppNavHost(
     backStack: NavBackStack,
     /** S3 待审队列宿主 VM（MusesApp 作用域持有；原按回退栈取 Scrape 页 entry 实例） */
     scrapeVm: com.muses.player.feature.scrape.ScrapeViewModel,
+    tabPager: PagerState,
+    tabStateHolder: SaveableStateHolder,
+    tabsSwipeEnabled: Boolean,
 ) {
     NavDisplay(
         backStack = backStack,
@@ -1099,17 +1096,16 @@ private fun AppNavHost(
             cornerClipRadius = top.yukonga.miuix.kmp.nav.core.rememberNavSystemCornerRadius(),
         ),
     ) {
-        entry<MusesRoute.Songs> {
-            val store = org.koin.compose.koinInject<com.muses.player.core.data.repository.UserPlaylistStore>()
-            val favorites = com.muses.player.core.ui.components.LocalFavoriteSongs.current
-            val downloads = org.koin.compose.koinInject<com.muses.player.core.download.DownloadQueueStore>()
-            val downloaded by downloads.downloadedSongs.collectAsState(initial = emptyList())
-            var importing by remember { mutableStateOf(false) }
-            com.muses.player.feature.library.PlaylistsScreen(store, favorites.likedSongs.size, downloaded.size,
-                onOpen = { backStack.pushUnique(MusesRoute.UserCollection(it)) }, onImport = { importing = true })
-            if (importing) ImportPlaylistDialog(store, onDismiss = { importing = false },
-                onOpen = { importing = false; backStack.pushUnique(MusesRoute.UserCollection(it)) })
+        entry<MusesRoute.Tabs> {
+            HorizontalPager(state = tabPager, modifier = Modifier.fillMaxSize(),
+                beyondViewportPageCount = 2, userScrollEnabled = tabsSwipeEnabled && backStack.size == 1,
+                key = { mainTabDestinations[it].name }) { page ->
+                tabStateHolder.SaveableStateProvider(mainTabDestinations[page].name) {
+                    MainTabPage(mainTabDestinations[page], backStack)
+                }
+            }
         }
+        entry<MusesRoute.Songs> { MainTabPage(NavDestination.Songs, backStack) }
         entry<MusesRoute.UserCollection>(swipeDismiss = NavSwipeDirection.LeftToRight) { route ->
             UserCollectionRoute(route.collectionId, onBack = { backStack.pop() },
                 onManageDownloads = { backStack.pushUnique(MusesRoute.Downloads) })
@@ -1235,19 +1231,7 @@ private fun AppNavHost(
         entry<MusesRoute.LxScripts>(swipeDismiss = NavSwipeDirection.LeftToRight) {
             LxScriptsScreen(onBack = { backStack.pop() })
         }
-        entry<MusesRoute.Home> {
-            HomeScreen(
-                onOpenSearch = { backStack.pushUnique(MusesRoute.OnlineSearch()) },
-                onOpenRecommendations = { backStack.pushUnique(MusesRoute.HomeCollection(true)) },
-                onOpenCharts = { backStack.pushUnique(MusesRoute.HomeCollection(false)) },
-                onOpenChart = { platform, chartId, title ->
-                    backStack.pushUnique(MusesRoute.ChartDetail(platform, chartId, title))
-                },
-                onOpenPlaylist = { platform, playlistId, title ->
-                    backStack.pushUnique(MusesRoute.PlaylistDetail(platform, playlistId, title))
-                },
-            )
-        }
+        entry<MusesRoute.Home> { MainTabPage(NavDestination.Home, backStack) }
         entry<MusesRoute.HomeCollection>(swipeDismiss = NavSwipeDirection.LeftToRight) { route ->
             HomeCollectionScreen(
                 showRecommendations = route.recommendations,
@@ -1296,17 +1280,7 @@ private fun AppNavHost(
                 onBack = { backStack.pop() },
             )
         }
-        entry<MusesRoute.Mine> {
-            MineScreen(
-                onOpenSources = { backStack.pushUnique(MusesRoute.Sources) },
-                onOpenScrape = { backStack.pushUnique(MusesRoute.Scrape) },
-                onOpenStatistics = { backStack.pushUnique(MusesRoute.Statistics) },
-                onOpenHistory = { backStack.pushUnique(MusesRoute.History) },
-                onOpenSettings = { backStack.pushUnique(MusesRoute.Settings) },
-                onOpenDownloads = { backStack.pushUnique(MusesRoute.Downloads) },
-                onOpenLibrary = { backStack.pushUnique(MusesRoute.LocalLibrary) },
-            )
-        }
+        entry<MusesRoute.Mine> { MainTabPage(NavDestination.Mine, backStack) }
         entry<MusesRoute.Statistics>(swipeDismiss = NavSwipeDirection.LeftToRight) {
             StatisticsScreen(onBack = { backStack.pop() })
         }
@@ -1412,3 +1386,47 @@ private fun CompactPlayerDock(
  * 比底栏的 24dp 略收（22dp）：pill 里只有图标没有文字，24dp 在圆形里会显得撑。
  */
 private val DockPillIconSize = 22.dp
+
+internal val mainTabDestinations = listOf(NavDestination.Home, NavDestination.Songs, NavDestination.Mine)
+
+@Composable
+private fun MainTabPage(destination: NavDestination, backStack: NavBackStack) {
+    when (destination) {
+        NavDestination.Home -> {
+            HomeScreen(
+                onOpenSearch = { backStack.pushUnique(MusesRoute.OnlineSearch()) },
+                onOpenRecommendations = { backStack.pushUnique(MusesRoute.HomeCollection(true)) },
+                onOpenCharts = { backStack.pushUnique(MusesRoute.HomeCollection(false)) },
+                onOpenChart = { platform, chartId, title ->
+                    backStack.pushUnique(MusesRoute.ChartDetail(platform, chartId, title))
+                },
+                onOpenPlaylist = { platform, playlistId, title ->
+                    backStack.pushUnique(MusesRoute.PlaylistDetail(platform, playlistId, title))
+                },
+            )
+        }
+        NavDestination.Songs -> {
+            val store = org.koin.compose.koinInject<com.muses.player.core.data.repository.UserPlaylistStore>()
+            val favorites = com.muses.player.core.ui.components.LocalFavoriteSongs.current
+            val downloads = org.koin.compose.koinInject<com.muses.player.core.download.DownloadQueueStore>()
+            val downloaded by downloads.downloadedSongs.collectAsState(initial = emptyList())
+            var importing by remember { mutableStateOf(false) }
+            com.muses.player.feature.library.PlaylistsScreen(store, favorites.likedSongs.size, downloaded.size,
+                onOpen = { backStack.pushUnique(MusesRoute.UserCollection(it)) }, onImport = { importing = true })
+            if (importing) ImportPlaylistDialog(store, onDismiss = { importing = false },
+                onOpen = { importing = false; backStack.pushUnique(MusesRoute.UserCollection(it)) })
+        }
+        NavDestination.Mine -> {
+            MineScreen(
+                onOpenSources = { backStack.pushUnique(MusesRoute.Sources) },
+                onOpenScrape = { backStack.pushUnique(MusesRoute.Scrape) },
+                onOpenStatistics = { backStack.pushUnique(MusesRoute.Statistics) },
+                onOpenHistory = { backStack.pushUnique(MusesRoute.History) },
+                onOpenSettings = { backStack.pushUnique(MusesRoute.Settings) },
+                onOpenDownloads = { backStack.pushUnique(MusesRoute.Downloads) },
+                onOpenLibrary = { backStack.pushUnique(MusesRoute.LocalLibrary) },
+            )
+        }
+        else -> Unit
+    }
+}

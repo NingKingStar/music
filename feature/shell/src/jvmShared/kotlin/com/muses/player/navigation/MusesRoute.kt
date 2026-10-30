@@ -17,6 +17,9 @@ import top.yukonga.miuix.kmp.nav.core.NavKey
  */
 @Serializable
 sealed interface MusesRoute : NavKey {
+    /** 三个主页面共用一个导航入口，手势由横向分页承接；子页面仍由原导航返回。 */
+    @Serializable
+    data object Tabs : MusesRoute
     /** 探索首页：主题横幅、发现入口与音乐分类（启动默认页）。 */
     @Serializable
     data object Home : MusesRoute
