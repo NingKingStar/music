@@ -296,9 +296,13 @@ class PlayerViewModel constructor(
     /**  LyricsDocument：供完整版 LyricsPanel 使用 */
     private val _lyricsDocument = MutableStateFlow<LyricsDocument?>(null)
     val lyricsDocument: StateFlow<LyricsDocument?> = _lyricsDocument.asStateFlow()
+    private val _lyricTranslationSource = MutableStateFlow<String?>(null)
+    val lyricTranslationSource: StateFlow<String?> = _lyricTranslationSource.asStateFlow()
     private val lyricsRetry = MutableStateFlow(0)
     private val _lyricsLoading = MutableStateFlow(false)
     val lyricsLoading: StateFlow<Boolean> = _lyricsLoading.asStateFlow()
+    private val _lyricRomanizationSource = MutableStateFlow<String?>(null)
+    val lyricRomanizationSource: StateFlow<String?> = _lyricRomanizationSource.asStateFlow()
 
     fun retryLyrics() {
         val id = playback.currentSongId.value ?: return
@@ -481,12 +485,12 @@ class PlayerViewModel constructor(
                 var first = true
                 matcher.observeDocuments(song, onlineMetadataResolver).collect { update ->
                     if (song.id == playback.currentSongId.value) {
-                        applyLyricsDocument(update.document)
+                        applyLyricsDocument(update.document, update.translationSource, update.romanizationSource)
                         if (first) {
-                            println("MusesLyrics first=${update.elapsedMs}ms cache=${update.fromCache} source=${update.source}")
+                            println("MusesLyrics first=${update.elapsedMs}ms cache=${update.fromCache} source=${update.source} translation=${update.translationSource}")
                             first = false
                         } else {
-                            println("MusesLyrics upgrade=${update.source} word=${update.document.lines.any { it.syllables.isNotEmpty() }}")
+                            println("MusesLyrics upgrade=${update.source} word=${update.document.lines.any { it.syllables.isNotEmpty() }} translation=${update.translationSource}")
                         }
                     }
                 }
@@ -559,7 +563,9 @@ class PlayerViewModel constructor(
     }
 
     /** 发布歌词文档：同步 AMLL 行集 / 末句结束时间 / 译文标记，并按翻译开关重建 payload */
-    private fun applyLyricsDocument(document: LyricsDocument?) {
+    private fun applyLyricsDocument(document: LyricsDocument?, translationSource: String? = null, romanizationSource: String? = null) {
+        _lyricRomanizationSource.value = romanizationSource
+        _lyricTranslationSource.value = translationSource
         _lyricsDocument.value = document
         val meta = _nowPlayingMeta.value
         com.muses.player.core.lyrics.DesktopLyricsState.publish(

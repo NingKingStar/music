@@ -207,11 +207,15 @@ object QQMusicQrcLyricsParser {
      */
     private fun parseQrcSyllables(content: String, lineStart: Long): List<LyricSyllable> = buildList {
         val matches = wordTiming.findAll(content).toList()
+        // 首标记前有正文则为后置时序；两种来源格式均保留首尾词。
+        val suffixTiming = matches.firstOrNull()?.let { content.substring(0, it.range.first).isNotBlank() } == true
         matches.forEachIndexed { index, timing ->
             val nextStart = matches.getOrNull(index + 1)?.range?.first ?: content.length
-            val afterStart = timing.range.last + 1
-            if (afterStart > nextStart) return@forEachIndexed
-            val text = content.substring(afterStart, nextStart)
+            val text = if (suffixTiming) {
+                val start = matches.getOrNull(index - 1)?.range?.last?.plus(1) ?: 0
+                content.substring(start, timing.range.first) +
+                    if (index == matches.lastIndex) content.substring(timing.range.last + 1) else ""
+            } else content.substring(timing.range.last + 1, nextStart)
             if (text.isEmpty()) return@forEachIndexed
             val rawStart = timing.groupValues[1].toLongOrNull() ?: return@forEachIndexed
             val duration = timing.groupValues[2].toLongOrNull()?.coerceAtLeast(1L) ?: return@forEachIndexed

@@ -55,15 +55,19 @@ suspend fun LyricsMatcher.matchDocument(
 internal suspend fun parseLyricsMatch(result: OnlineLyricsMatchResult.Ok): LyricsDocument? =
     withContext(Dispatchers.Default) {
         val translation = result.translationText
-        if (translation.isNullOrBlank()) {
+        val primary = if (translation.isNullOrBlank() && result.romanizationText.isNullOrBlank()) {
             LyricsParser.parseDocument(result.text)
         } else {
             when (result.format) {
-                OnlineLyricsFormat.YRC -> NeteaseLyricParser.parse(yrc = result.text, lrc = "", translatedLrc = translation)
-                OnlineLyricsFormat.QRC -> QQMusicQrcLyricsParser.parse(primary = result.text, translation = translation)
-                else -> LrcLyricsParser.parse(result.text, translation = translation)
+                OnlineLyricsFormat.YRC -> NeteaseLyricParser.parse(yrc = result.text, lrc = "", translatedYrc = translation.orEmpty(), translatedLrc = translation.orEmpty(), romanizedYrc = result.romanizationText.orEmpty(), romanizedLrc = result.romanizationText.orEmpty())
+                OnlineLyricsFormat.QRC -> QQMusicQrcLyricsParser.parse(primary = result.text, translation = translation.orEmpty(), romanization = result.romanizationText.orEmpty())
+                else -> LrcLyricsParser.parse(result.text, translation = translation.orEmpty(), romanization = result.romanizationText.orEmpty())
             }
+        } ?: return@withContext null
+        val fallback = result.romanizationBaseText?.let { base ->
+            LrcLyricsParser.parse(base, romanization = result.romanizationFallbackText.orEmpty())
         }
+        if (fallback != null) LyricRomanizationPolicy.enrich(primary, fallback, result.source.wire, result.source.wire).document else primary
     }
 
 /** 播放专用渐进通道；脚本与平台互不等待，所有播放 UI 共享缓存及进行中的查询。 */

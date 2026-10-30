@@ -5,7 +5,11 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import com.muses.player.core.lyrics.model.LyricsDocument
 
+val LocalPlayerLyricsCoverUri = staticCompositionLocalOf<String?> { null }
+
 val LocalPlaybackLyricsRetry = staticCompositionLocalOf<(() -> Unit)?> { null }
+val LocalPlaybackLyricsTranslationSource = staticCompositionLocalOf<String?> { null }
+val LocalPlaybackLyricsRomanizationSource = staticCompositionLocalOf<String?> { null }
 val LocalPlaybackLyricsLoading = staticCompositionLocalOf { false }
 
 @Composable

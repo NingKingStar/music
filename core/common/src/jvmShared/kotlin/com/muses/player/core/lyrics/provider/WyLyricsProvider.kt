@@ -63,24 +63,21 @@ private fun isYrcBody(text: String): Boolean {
 }
 
 /** 从歌词响应挑 yrc 优先、lrc 兜底，并携带校验过的译文（wy.ts pickFromBody） */
-private fun pickFromBody(body: JsonObject): OnlineLyricsProviderHit? {
-    val translationText = body.obj("tlyric")?.str("lyric")?.trim()
-    fun <T : OnlineLyricsProviderHit> withTrans(hit: T): T =
-        if (!translationText.isNullOrEmpty() && Regex("\\[\\d+:\\d+").containsMatchIn(translationText)) {
-            @Suppress("UNCHECKED_CAST")
-            hit.copy(translationText = translationText) as T
-        } else {
-            hit
-        }
-
-    val yrc = body.obj("yrc")?.str("lyric")?.trim()
-    if (!yrc.isNullOrEmpty() && isYrcBody(yrc)) {
-        return withTrans(OnlineLyricsProviderHit(text = yrc, format = OnlineLyricsFormat.YRC))
+internal fun pickWyLyricsBody(body: JsonObject): OnlineLyricsProviderHit? {
+    fun field(key: String) = body.obj(key)?.str("lyric")?.trim()?.takeIf { it.isNotBlank() }
+    fun timed(key: String) = field(key)?.takeIf { Regex("\\[\\d+:\\d+|\\[\\d+,\\d+\\]").containsMatchIn(it) }
+    val yrc = field("yrc")?.takeIf(::isYrcBody)
+    val lrc = timed("lrc")
+    val translatedYrc = timed("ytlrc")
+    val translatedLrc = timed("tlyric")
+    // 缺少YRC对应译文时，采用原生LRC双语组合；不能仅靠相近时间把LRC译文塞到不同分句的YRC上。
+    if (yrc != null && (translatedYrc != null || translatedLrc == null || lrc == null)) {
+        return OnlineLyricsProviderHit(yrc, OnlineLyricsFormat.YRC, translatedYrc,
+            field("yromalrc"),
+            romanizationBaseText = lrc?.takeIf { field("yromalrc") == null && field("romalrc") != null },
+            romanizationFallbackText = field("romalrc")?.takeIf { field("yromalrc") == null && lrc != null })
     }
-    val lrc = body.obj("lrc")?.str("lyric")?.trim()
-    if (!lrc.isNullOrEmpty() && Regex("\\[\\d+:\\d+").containsMatchIn(lrc)) {
-        return withTrans(OnlineLyricsProviderHit(text = lrc, format = OnlineLyricsFormat.LRC))
-    }
+    if (lrc != null) return OnlineLyricsProviderHit(lrc, OnlineLyricsFormat.LRC, translatedLrc, field("romalrc"))
     return null
 }
 
@@ -157,10 +154,10 @@ suspend fun searchWyLyrics(http: LyricsHttp, query: OnlineLyricsQuery): OnlineLy
         ?: searchWySongId(http, query) ?: return null
 
     fetchWyEapiLyric(http, id)?.let { body ->
-        pickFromBody(body)?.let { return it }
+        pickWyLyricsBody(body)?.let { return it }
     }
     fetchWyPublicLyric(http, id)?.let { body ->
-        pickFromBody(body)?.let { return it }
+        pickWyLyricsBody(body)?.let { return it }
     }
     return null
 }

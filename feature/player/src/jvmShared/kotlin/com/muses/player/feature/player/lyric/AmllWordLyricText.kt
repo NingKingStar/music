@@ -64,6 +64,7 @@ internal fun AmllWordLyricText(
     background: Boolean,
     modifier: Modifier = Modifier,
     showRuby: Boolean = true,
+    onTextLayout: ((TextLayoutResult) -> Unit)? = null,
 ) {
     val contentColor = LocalPlayerContentColor.current
     val density = LocalDensity.current
@@ -79,8 +80,11 @@ internal fun AmllWordLyricText(
             fontSize = (UpstreamLyrics.FONT_SIZE_SP * fontScale).sp,
             lineHeight = (UpstreamLyrics.LINE_HEIGHT_SP * fontScale).sp,
             fontWeight = SettingsRuntime.lyricFontWeight.composeWeight,
+            lineBreak = LyricTextLayout.lineBreak,
+            hyphens = androidx.compose.ui.text.style.Hyphens.None,
             textAlign = if (line.agent?.alignment == LyricAgentAlignment.Flipped) TextAlign.End else TextAlign.Start,
         )
+        val protectedText = remember(line.text) { LyricTextLayout.protectWords(line.text) }
         val words = remember(line) { AmllWordEffects.words(line) }
         val rubyLayouts = remember(words, style, showRuby) {
             words.map { word ->
@@ -102,14 +106,15 @@ internal fun AmllWordLyricText(
                         with(density) { maxOf(base.size.width, ruby.size.width).toSp() },
                         with(density) { (base.size.height + ruby.size.height).toSp() },
                         PlaceholderVerticalAlign.Bottom,
-                    ), word.range.start, word.range.end)
+                    ), protectedText.layoutOffset(word.range.start), protectedText.layoutOffset(word.range.end))
                 }
             }
         }
         val layout = remember(line.text, width, style, placeholders) {
-            textMeasurer.measure(AnnotatedString(line.text), style,
+            textMeasurer.measure(AnnotatedString(protectedText.text), style,
                 constraints = Constraints(minWidth = width, maxWidth = width), placeholders = placeholders)
         }
+        androidx.compose.runtime.SideEffect { onTextLayout?.invoke(layout) }
         val emPx = with(density) { style.fontSize.toPx() }
         val fragments = remember(words, layout, style) {
             var rubyIndex = 0
@@ -131,17 +136,17 @@ internal fun AmllWordLyricText(
                     }
                     return@mapIndexed listOf(AmllFragment(bounds, basePieces +
                         AmllPiece(ruby, rubyOrigin, Rect(rubyOrigin, Size(ruby.size.width.toFloat(), ruby.size.height.toFloat())), 0, isRuby = true),
-                        0f, layout.getBidiRunDirection(word.range.start) == ResolvedTextDirection.Rtl))
+                        0f, layout.getBidiRunDirection(protectedText.layoutOffset(word.range.start)) == ResolvedTextDirection.Rtl))
                 }
                 var widthBefore = 0f
-                word.characters.withIndex().groupBy { layout.getLineForOffset(it.value.start) }.map { (lineIndex, characters) ->
-                    val boxes = characters.map { layout.getBoundingBox(it.value.start) }
+                word.characters.withIndex().groupBy { layout.getLineForOffset(protectedText.layoutOffset(it.value.start)) }.map { (lineIndex, characters) ->
+                    val boxes = characters.map { layout.getBoundingBox(protectedText.layoutOffset(it.value.start)) }
                     val bounds = Rect(boxes.minOf { it.left }, layout.getLineTop(lineIndex),
                         boxes.maxOf { it.right }, layout.getLineBottom(lineIndex))
                     val ranges = if (word.emphasis != null) characters.map { it.index to it.value }
                     else listOf(0 to AmllWordEffects.TextRange(characters.first().value.start, characters.last().value.end))
                     val pieces = ranges.map { (character, range) ->
-                        val pieceBoxes = (range.start until range.end).map { layout.getBoundingBox(it) }
+                        val pieceBoxes = (range.start until range.end).map { layout.getBoundingBox(protectedText.layoutOffset(it)) }
                         val pieceBounds = Rect(pieceBoxes.minOf { it.left }, bounds.top,
                             pieceBoxes.maxOf { it.right }, bounds.bottom)
                         val pieceLayout = textMeasurer.measure(
@@ -153,7 +158,7 @@ internal fun AmllWordLyricText(
                             pieceBounds.translate(-bounds.left, -bounds.top), character)
                     }
                     AmllFragment(bounds, pieces, widthBefore,
-                        layout.getBidiRunDirection(characters.first().value.start) == ResolvedTextDirection.Rtl)
+                        layout.getBidiRunDirection(protectedText.layoutOffset(characters.first().value.start)) == ResolvedTextDirection.Rtl)
                         .also { widthBefore += bounds.width }
                 }
             }
@@ -177,7 +182,7 @@ internal fun AmllWordLyricText(
             val time = if (supportsTimedLyrics) playbackTimeProvider() else 0L
             // 避免不完整来源数据中的未定时标点消失。
             untimedRanges.forEach { range ->
-                val box = layout.getBoundingBox(range.start)
+                val box = layout.getBoundingBox(protectedText.layoutOffset(range.start))
                 clipRect(box.left, box.top, box.right, box.bottom) {
                     drawText(layout, contentColor.copy(alpha = if (supportsTimedLyrics) unplayedAlpha else 1f))
                 }

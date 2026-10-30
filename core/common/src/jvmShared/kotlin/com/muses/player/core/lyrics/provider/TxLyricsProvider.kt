@@ -81,60 +81,48 @@ private suspend fun searchTxHit(http: LyricsHttp, query: OnlineLyricsQuery): TxH
     return pickBest(list, query)
 }
 
-/** tx.ts fetchTxQrc：GetPlayLyricInfo 加密 QRC → QrcDecoder */
-private suspend fun fetchTxQrc(http: LyricsHttp, songId: Long): String? {
+/** 同时接收平台原文和译文，兼容明文、base64 与桌面端加密字段。 */
+internal fun parseTxLyricsBody(body: JsonObject, encrypted: Boolean = false): OnlineLyricsProviderHit? {
+    fun text(value: String?): String {
+        val raw = value?.trim().orEmpty()
+        if (raw.isEmpty()) return ""
+        if (encrypted && raw.length % 2 == 0 && raw.all { it in '0'..'9' || it.lowercaseChar() in 'a'..'f' })
+            return QrcDecoder.decryptHex(raw)?.let { QrcDecoder.extractLyricContent(it) }.orEmpty()
+        return QrcDecoder.extractLyricContent(decodeMaybeBase64(raw))
+    }
+    val lyric = text(body.str("qrc")).ifBlank { text(body.str("lyric")) }
+    if (lyric.isBlank()) return null
+    val qrc = Regex("(?m)^\\[\\d+,\\d+\\]").containsMatchIn(lyric) && Regex("\\(\\d+,\\d+").containsMatchIn(lyric)
+    if (!qrc && !Regex("\\[\\d+:\\d+").containsMatchIn(lyric)) return null
+    val translation = text(body.str("trans")).takeIf { it.isNotBlank() }
+    val romanization = text(body.str("roma")).takeIf { it.isNotBlank() }
+    return OnlineLyricsProviderHit(lyric, if (qrc) OnlineLyricsFormat.QRC else OnlineLyricsFormat.LRC, translation, romanization)
+}
+
+private suspend fun fetchTxQrc(http: LyricsHttp, songId: Long): OnlineLyricsProviderHit? {
     val payload = """
         {"comm":{"ct":"19","cv":"1859","uin":"0"},"req":{"method":"GetPlayLyricInfo",
         "module":"music.musichallSong.PlayLyricInfo","param":{"format":"json","crypt":1,"ct":19,
         "cv":1873,"interval":0,"lrc_t":0,"qrc":1,"qrc_t":0,"roma":1,"roma_t":0,"songID":$songId,
         "trans":1,"trans_t":0,"type":-1}}}
     """.trimIndent().replace(Regex("\\s"), "")
-
     return try {
-        val body = http.postJson("https://u.y.qq.com/cgi-bin/musicu.fcg", payload, TX_DESKTOP_HEADERS) as? JsonObject
-            ?: return null
+        val body = http.postJson("https://u.y.qq.com/cgi-bin/musicu.fcg", payload, TX_DESKTOP_HEADERS) as? JsonObject ?: return null
         if (body.str("code") != "0") return null
         val req = body.obj("req") ?: return null
         if (req.str("code") != "0") return null
-        val hex = req.obj("data")?.str("lyric")?.trim()?.takeUnless { it.isEmpty() } ?: return null
-        QrcDecoder.decryptToPlain(hex)
-    } catch (e: CancellationException) {
-        throw e
-    } catch (_: Exception) {
-        null
-    }
+        req.obj("data")?.let { parseTxLyricsBody(it, encrypted = true) }
+    } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
 }
 
-/** tx.ts fetchTxLrcByMid：fcg_query_lyric_new 行级 LRC（JSONP 剥壳 + base64 容错） */
-private suspend fun fetchTxLrcByMid(http: LyricsHttp, songmid: String): String? {
+private suspend fun fetchTxLrcByMid(http: LyricsHttp, songmid: String): OnlineLyricsProviderHit? {
     val url = "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg?songmid=${enc(songmid)}" +
         "&format=json&nobase64=1&g_tk=5381&loginUin=0&hostUin=0&inCharset=utf8&outCharset=utf-8&notice=0&platform=yqq.json&needNewCode=0"
-
-    val raw = try {
-        http.getText(url, TX_HEADERS)
-    } catch (e: CancellationException) {
-        throw e
-    } catch (_: Exception) {
-        return null
-    }
-
-    // 剥 JSONP 外壳：callback( ... ); → ...
+    val raw = try { http.getText(url, TX_HEADERS) }
+        catch (e: CancellationException) { throw e } catch (_: Exception) { return null }
     val jsonText = raw.replace(Regex("^\\s*[a-zA-Z0-9_]*\\("), "").replace(Regex("\\)\\s*;?\\s*$"), "")
-    val body = try {
-        Json.parseToJsonElement(jsonText) as? JsonObject ?: return null
-    } catch (_: Exception) {
-        return null
-    }
-
-    // 若意外拿到明文 qrc
-    val qrc = body.str("qrc")
-    if (!qrc.isNullOrEmpty() && qrc.contains("(") && qrc.contains("[")) {
-        return qrc
-    }
-
-    val lyric = decodeMaybeBase64(body.str("lyric").orEmpty())
-    if (lyric.isBlank() || !Regex("\\[\\d+:\\d+").containsMatchIn(lyric)) return null
-    return lyric
+    val body = try { Json.parseToJsonElement(jsonText) as? JsonObject ?: return null } catch (_: Exception) { return null }
+    return parseTxLyricsBody(body)
 }
 
 /** tx 搜索主流程（tx.ts searchTxLyrics）；失败返回 null 由链上下一源承接 */
@@ -147,17 +135,8 @@ suspend fun searchTxLyrics(http: LyricsHttp, query: OnlineLyricsQuery): OnlineLy
     ) else searchTxHit(http, query) ?: return null
 
     if (hit.songId != null) {
-        fetchTxQrc(http, hit.songId)?.let { qrc ->
-            return OnlineLyricsProviderHit(text = qrc, format = OnlineLyricsFormat.QRC)
-        }
+        fetchTxQrc(http, hit.songId)?.let { return it }
     }
 
-    val lrc = fetchTxLrcByMid(http, hit.mid) ?: return null
-    // 明文 qrc 误入 LRC 接口时
-    if (Regex("^\\[\\d+,\\d+\\]", setOf(RegexOption.MULTILINE)).containsMatchIn(lrc) &&
-        Regex("\\(\\d+,\\d+\\)").containsMatchIn(lrc)
-    ) {
-        return OnlineLyricsProviderHit(text = lrc, format = OnlineLyricsFormat.QRC)
-    }
-    return OnlineLyricsProviderHit(text = lrc, format = OnlineLyricsFormat.LRC)
+    return fetchTxLrcByMid(http, hit.mid)
 }

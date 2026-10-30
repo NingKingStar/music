@@ -86,8 +86,15 @@ internal fun AppleMusicLyricsPanel(
     onAtTopChange: (Boolean) -> Unit = {},
 ) {
     val settingsRepository = koinInject<SettingsRepository>()
-    val showLyricTranslation by settingsRepository.lyricTranslationEnabled.collectAsStateWithLifecycle(initialValue = true)
-    val showLyricRomanization by settingsRepository.lyricRomanizationEnabled.collectAsStateWithLifecycle(initialValue = true)
+    val supplement by settingsRepository.lyricSupplementMode.collectAsStateWithLifecycle(
+        initialValue = com.muses.player.core.data.repository.LyricSupplementMode.Translation)
+    val showLyricTranslation = supplement == com.muses.player.core.data.repository.LyricSupplementMode.Translation
+    val showLyricRomanization = supplement == com.muses.player.core.data.repository.LyricSupplementMode.Romanization
+    val lyricTextSize by settingsRepository.lyricTextSize.collectAsStateWithLifecycle(initialValue = 24L)
+    val lyricLineSpacing by settingsRepository.lyricLineSpacing.collectAsStateWithLifecycle(initialValue = 28L)
+    val wordHighlightEnabled by settingsRepository.lyricWordHighlightEnabled.collectAsStateWithLifecycle(initialValue = true)
+    val lyricFontScale = lyricTextSize.toFloat() / UpstreamLyrics.FONT_SIZE_SP
+    val lyricSpacingScale = lyricLineSpacing.toFloat() / UpstreamLyrics.LINE_SPACING_DP
     val contentColor = LocalPlayerContentColor.current
     val activeState = rememberUpdatedState(active)
     // Keep four future lines composed below the viewport. Their independent
@@ -310,7 +317,7 @@ internal fun AppleMusicLyricsPanel(
     var appliedScrollPx by remember(renderedDocument) { mutableStateOf(0f) }
     var rowBaselines by remember(renderedDocument) { mutableStateOf<Map<Int, Float>>(emptyMap()) }
     val rowHeightsPx = remember(
-        renderedDocument, SettingsRuntime.lyricFontScale, showLyricTranslation,
+        renderedDocument, lyricFontScale, showLyricTranslation,
         showLyricRomanization,
     ) { mutableStateMapOf<Int, Int>() }
     var viewportHeightPx by remember { mutableIntStateOf(0) }
@@ -324,8 +331,6 @@ internal fun AppleMusicLyricsPanel(
     val latestVisibilityCallback = rememberUpdatedState(onInterfaceVisibilityChange)
     val latestInteractionCallback = rememberUpdatedState(onInterfaceInteraction)
     var initialLyricsPositioned by remember(renderedDocument) { mutableStateOf(lines.isEmpty()) }
-    val lyricFontScale = SettingsRuntime.lyricFontScale
-    val lyricSpacingScale = SettingsRuntime.lyricSpacingScale
     val lineSpacingPx = with(density) { (UpstreamLyrics.LINE_SPACING_DP * lyricSpacingScale).dp.toPx() }
     val primaryHeightPx = with(density) { (UpstreamLyrics.LINE_HEIGHT_SP * lyricFontScale).sp.toPx() }
     val annotationFontPx = with(density) {
@@ -456,6 +461,7 @@ internal fun AppleMusicLyricsPanel(
         LaunchedEffect(
             playbackFocusIndex, playbackFocusGeneration, viewportHeightPx, viewportWidthPx,
             isBrowsingLyrics, renderedDocument, focusHeight, seekGeneration, activeInterludeIndex,
+            lyricTextSize, lyricLineSpacing, showLyricTranslation, showLyricRomanization,
         ) {
             if (viewportHeightPx <= 0 || isBrowsingLyrics || lines.isEmpty()) return@LaunchedEffect
             val nextIndex = playbackFocusIndex.coerceIn(lines.indices)
@@ -692,7 +698,7 @@ internal fun AppleMusicLyricsPanel(
                             // syllable row made the complete LazyColumn redraw at
                             // the lyric refresh rate on low-end devices.
                             supportsTimedLyrics = line.syllables.isNotEmpty() &&
-                                SettingsRuntime.lyricWordByWordEnabled &&
+                                wordHighlightEnabled &&
                                 (effectiveFocus > 0.001f || isActiveLine || index == visualFocusIndex + 1),
                             fontScale = lyricFontScale,
                             reduceMotion = SettingsRuntime.lyricReduceMotion,
@@ -706,7 +712,7 @@ internal fun AppleMusicLyricsPanel(
                             distanceBlurDp = 0f,
                             focusBlurDp = 0f,
                             renderingQuality = renderingQuality,
-                            showRuby = showLyricRomanization,
+                            showRuby = false,
                             showTranslation = showLyricTranslation &&
                                 !line.translation.isNullOrBlank(),
                             showRomanization = showLyricRomanization &&
@@ -743,6 +749,19 @@ internal fun AppleMusicLyricsPanel(
                     }
                 }
             }
+        }
+
+        androidx.compose.animation.AnimatedVisibility(
+            visible = isBrowsingLyrics,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(bottom = 8.dp),
+            enter = androidx.compose.animation.fadeIn(tween(150)),
+            exit = androidx.compose.animation.fadeOut(tween(150)),
+        ) {
+            Text("回到当前句", color = contentColor, fontSize = 12.sp,
+                modifier = Modifier.clickable {
+                    isBrowsingLyrics = false
+                    playbackFocusGeneration += 1
+                }.padding(horizontal = 14.dp, vertical = 12.dp))
         }
 
         //  iOS reserves only the former bottom-controls region as the

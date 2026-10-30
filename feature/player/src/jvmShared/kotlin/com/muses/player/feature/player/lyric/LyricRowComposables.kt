@@ -254,7 +254,7 @@ internal fun UpstreamLyricLine(
                 reduceMotion = reduceMotion,
                 timingEffectsStrength = timingEffectsStrength,
                 unplayedAlpha = timedUnplayedAlpha,
-                showRuby = showRuby,
+                showRuby = false,
                 modifier = Modifier.fillMaxWidth(),
             )
         } else {
@@ -271,7 +271,7 @@ internal fun UpstreamLyricLine(
                 unplayedAlpha = timedUnplayedAlpha,
                 renderingQuality = renderingQuality,
                 softBlurDp = effectiveBlur,
-                showRuby = showRuby,
+                showRuby = false,
                 modifier = Modifier.fillMaxWidth(),
             )
         }
@@ -297,6 +297,8 @@ internal fun UpstreamLyricLine(
                 lineHeight = translationSize.sp * 1.2f,
                 fontWeight = SettingsRuntime.lyricFontWeight.composeWeight,
                 style = TextStyle(
+                    lineBreak = LyricTextLayout.lineBreak,
+                    hyphens = androidx.compose.ui.text.style.Hyphens.None,
                     shadow = if (effectiveBlur > .05f) {
                         Shadow(
                             color = contentColor.copy(alpha = .48f),
@@ -366,120 +368,44 @@ internal fun RubyLyricText(
     showRuby: Boolean = true,
 ) {
     val contentColor = LocalPlayerContentColor.current
-    if (SettingsRuntime.lyricWordByWordEnabled) {
-        Column(modifier = modifier) {
-            GlyphLyricText(
-                line = line,
-                playbackTimeProvider = playbackTimeProvider,
-                supportsTimedLyrics = supportsTimedLyrics,
-                fontScale = fontScale,
-                reduceMotion = reduceMotion,
-                timingEffectsStrength = timingEffectsStrength,
-                unplayedAlpha = unplayedAlpha,
-                renderingQuality = renderingQuality,
-                softBlurDp = softBlurDp,
-                showRuby = showRuby,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            if (!line.romanization.isNullOrBlank()) {
-                Text(
-                    text = line.romanization.orEmpty(),
-                    color = contentColor.copy(alpha = SettingsRuntime.lyricRomanizationOpacity),
-                    modifier = Modifier.fillMaxWidth().padding(top = UpstreamLyrics.ANNOTATION_SPACING_DP.dp),
-                    fontSize = max(
-                        UpstreamLyrics.FONT_SIZE_SP * fontScale * SettingsRuntime.lyricRomanizationFontScale,
-                        13f,
-                    ).sp,
-                    lineHeight = (
-                        max(
-                            UpstreamLyrics.FONT_SIZE_SP * fontScale * SettingsRuntime.lyricRomanizationFontScale,
-                            13f,
-                        ) * 1.2f
-                    ).sp,
-                    fontWeight = SettingsRuntime.lyricFontWeight.composeWeight,
-                    textAlign = if (line.agent?.alignment == com.muses.player.core.lyrics.model.LyricAgentAlignment.Flipped) TextAlign.End else TextAlign.Start,
-                )
-            }
-        }
-        return
-    }
-
-    val flipped = line.agent?.alignment == com.muses.player.core.lyrics.model.LyricAgentAlignment.Flipped
-    val units = remember(line) { LyricRomanizationAligner.units(line) }
-    if (units.isEmpty()) {
+    // 有原生逐词时序则上方注音并整组换行；其余整句读音独立成行。
+    val paired = remember(line) { com.muses.player.core.lyrics.aligner.TimedPronunciation.rubyLine(line) }
+    Column(modifier = modifier) {
         GlyphLyricText(
-            line = line,
+            line = paired ?: line,
             playbackTimeProvider = playbackTimeProvider,
             supportsTimedLyrics = supportsTimedLyrics,
             fontScale = fontScale,
-            reduceMotion = true,
-            timingEffectsStrength = 1f,
+            reduceMotion = reduceMotion,
+            timingEffectsStrength = timingEffectsStrength,
+            unplayedAlpha = unplayedAlpha,
             renderingQuality = renderingQuality,
             softBlurDp = softBlurDp,
-            showRuby = showRuby,
-            modifier = modifier,
+            showRuby = paired != null,
+            modifier = Modifier.fillMaxWidth(),
         )
-        return
-    }
-
-    val primarySize = UpstreamLyrics.FONT_SIZE_SP * fontScale
-    val rubySize = max(primarySize * SettingsRuntime.lyricRomanizationFontScale, 13f)
-    FlowRow(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(
-            2.dp,
-            alignment = if (flipped) Alignment.End else Alignment.Start,
-        ),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        units.forEach { unit ->
-            val start = unit.originalSyllables.minOfOrNull { it.startTimeMs } ?: 0L
-            val end = unit.originalSyllables.maxOfOrNull { it.endTimeMs }?.coerceAtLeast(start + 1L) ?: 1L
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = unit.originalText,
-                    color = contentColor,
-                    modifier = Modifier.graphicsLayer {
-                        alpha = if (!supportsTimedLyrics || unit.originalSyllables.isEmpty()) {
-                            1f
-                        } else {
-                            val reveal = ((playbackTimeProvider() - start).toFloat() / (end - start).toFloat())
-                                .coerceIn(0f, 1f)
-                            0.3f + reveal * 0.7f
-                        }
-                    },
-                    fontSize = primarySize.sp,
-                    lineHeight = (UpstreamLyrics.LINE_HEIGHT_SP * fontScale).sp,
-                    fontWeight = SettingsRuntime.lyricFontWeight.composeWeight,
-                    maxLines = 1,
-                    style = TextStyle(
-                        shadow = if (softBlurDp > .05f) {
-                            Shadow(contentColor.copy(alpha = .48f), Offset.Zero, softBlurDp)
-                        } else null,
-                    ),
-                )
-                val rubyText = unit.romanizationText
-                if (!rubyText.isNullOrBlank()) {
-                    val originalUnits = unit.originalText.codePointCount(0, unit.originalText.length).coerceAtLeast(1)
-                    val rubyUnits = rubyText.codePointCount(0, rubyText.length).coerceAtLeast(1)
-                    val rubyCompression = (originalUnits * 1.85f / rubyUnits).coerceIn(.68f, 1f)
-                    Text(
-                        text = rubyText,
-                        color = contentColor.copy(alpha = SettingsRuntime.lyricRomanizationOpacity),
-                        fontSize = (rubySize * rubyCompression).sp,
-                        lineHeight = (rubySize * 1.2f).sp,
-                        fontWeight = SettingsRuntime.lyricFontWeight.composeWeight,
-                        maxLines = 1,
-                        style = TextStyle(
-                            shadow = if (softBlurDp > .05f) {
-                                Shadow(contentColor.copy(alpha = .42f), Offset.Zero, softBlurDp)
-                            } else null,
-                        ),
-                    )
-                }
-            }
+        if (paired == null && !line.romanization.isNullOrBlank()) {
+            Text(
+                text = line.romanization.orEmpty(),
+                style = TextStyle(lineBreak = LyricTextLayout.lineBreak, hyphens = androidx.compose.ui.text.style.Hyphens.None),
+                color = contentColor.copy(alpha = SettingsRuntime.lyricRomanizationOpacity),
+                modifier = Modifier.fillMaxWidth().padding(top = UpstreamLyrics.ANNOTATION_SPACING_DP.dp),
+                fontSize = max(
+                    UpstreamLyrics.FONT_SIZE_SP * fontScale * SettingsRuntime.lyricRomanizationFontScale,
+                    13f,
+                ).sp,
+                lineHeight = (
+                    max(
+                        UpstreamLyrics.FONT_SIZE_SP * fontScale * SettingsRuntime.lyricRomanizationFontScale,
+                        13f,
+                    ) * 1.2f
+                ).sp,
+                fontWeight = SettingsRuntime.lyricFontWeight.composeWeight,
+                textAlign = if (line.agent?.alignment == com.muses.player.core.lyrics.model.LyricAgentAlignment.Flipped) TextAlign.End else TextAlign.Start,
+            )
         }
     }
+
 }
 
 

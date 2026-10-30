@@ -47,7 +47,7 @@ class LyricsMatcher(
             catch (e: kotlinx.coroutines.CancellationException) { throw e }
             catch (_: Exception) { null }
             if (!hit?.text.isNullOrBlank()) return OnlineLyricsMatchResult.Ok(
-                text = hit!!.text, format = hit.format, source = native.id, translationText = hit.translationText,
+                text = hit!!.text, format = hit.format, source = native.id, translationText = hit.translationText, romanizationText = hit.romanizationText, romanizationBaseText = hit.romanizationBaseText, romanizationFallbackText = hit.romanizationFallbackText,
             )
         }
 
@@ -88,7 +88,7 @@ class LyricsMatcher(
                         text = text,
                         format = hit.format,
                         source = provider.id,
-                        translationText = translationText?.takeIf { it.isNotEmpty() },
+                        translationText = translationText?.takeIf { it.isNotEmpty() }, romanizationText = hit.romanizationText, romanizationBaseText = hit.romanizationBaseText, romanizationFallbackText = hit.romanizationFallbackText,
                     )
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {

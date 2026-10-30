@@ -47,6 +47,10 @@ data class OnlineLyricsProviderHit(
     val text: String,
     val format: OnlineLyricsFormat,
     val translationText: String? = null,
+    val romanizationText: String? = null,
+    /** 网易逐字正文缺音译时，保留普通LRC原文用于安全对齐romalrc。 */
+    val romanizationBaseText: String? = null,
+    val romanizationFallbackText: String? = null,
 )
 
 /**
@@ -78,6 +82,9 @@ sealed interface OnlineLyricsMatchResult {
          * 视为 HIGH（向后兼容）。低置信命中仅供刮削页候选排序参考。
          */
         val confidence: com.muses.player.core.model.scrape.MatchConfidence? = null,
+        val romanizationText: String? = null,
+        val romanizationBaseText: String? = null,
+        val romanizationFallbackText: String? = null,
     ) : OnlineLyricsMatchResult
 
     data class Fail(val reason: OnlineLyricsFailReason) : OnlineLyricsMatchResult
@@ -122,6 +129,7 @@ sealed interface AmllMatchResult {
         val score: Int,
         /** 来自 findBestMatch；自动写库路径应校验为 HIGH */
         val confidence: com.muses.player.core.model.scrape.MatchConfidence? = null,
+        val romanizationText: String? = null,
     ) : AmllMatchResult
 
     data class Fail(val reason: AmllFailReason) : AmllMatchResult

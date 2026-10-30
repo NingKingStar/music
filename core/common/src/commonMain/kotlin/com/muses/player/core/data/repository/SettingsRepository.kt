@@ -8,6 +8,10 @@ import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
+
+/** 原文可单独显示，译文和读音只能选择其中一种。 */
+enum class LyricSupplementMode { Original, Translation, Romanization }
 
 /** 应用设置（DataStore Preferences） */
 interface SettingsRepository {
@@ -48,8 +52,24 @@ interface SettingsRepository {
     /** 沉浸式播放页是否显示歌词翻译（默认开启） */
     val lyricTranslationEnabled: Flow<Boolean>
 
-    /** 沉浸式播放页是否显示歌词音译与逐字注音（默认开启） */
+    /** 沉浸式播放页是否显示歌词音译与逐字注音（默认关闭） */
     val lyricRomanizationEnabled: Flow<Boolean>
+
+    val lyricSupplementMode: Flow<LyricSupplementMode>
+        get() = combine(lyricTranslationEnabled, lyricRomanizationEnabled) { translation, romanization ->
+            when {
+                translation -> LyricSupplementMode.Translation
+                romanization -> LyricSupplementMode.Romanization
+                else -> LyricSupplementMode.Original
+            }
+        }
+
+    val lyricTextSize: Flow<Long> get() = kotlinx.coroutines.flow.flowOf(24L)
+    val lyricLineSpacing: Flow<Long> get() = kotlinx.coroutines.flow.flowOf(28L)
+    val lyricWordHighlightEnabled: Flow<Boolean> get() = kotlinx.coroutines.flow.flowOf(true)
+    suspend fun setLyricTextSize(size: Long) {}
+    suspend fun setLyricLineSpacing(spacing: Long) {}
+    suspend fun setLyricWordHighlightEnabled(enabled: Boolean) {}
 
     suspend fun setAutoScrapeEnabled(enabled: Boolean)
 
@@ -171,10 +191,36 @@ class DataStoreSettingsRepository constructor(
         get() = dataStore.data.map { prefs -> prefs[COVER_CONTENT_COLOR_ENABLED] ?: true }
 
     override val lyricTranslationEnabled: Flow<Boolean>
-        get() = dataStore.data.map { prefs -> prefs[LYRIC_TRANSLATION_ENABLED] ?: true }
+        get() = lyricSupplementMode.map { it == LyricSupplementMode.Translation }
 
     override val lyricRomanizationEnabled: Flow<Boolean>
-        get() = dataStore.data.map { prefs -> prefs[LYRIC_ROMANIZATION_ENABLED] ?: true }
+        get() = lyricSupplementMode.map { it == LyricSupplementMode.Romanization }
+
+    // 旧版本两项同时为真时优先译文；单次快照决定显示模式，避免切换时短暂双开。
+    override val lyricSupplementMode: Flow<LyricSupplementMode>
+        get() = dataStore.data.map { prefs ->
+            when {
+                prefs[LYRIC_TRANSLATION_ENABLED] ?: true -> LyricSupplementMode.Translation
+                prefs[LYRIC_ROMANIZATION_ENABLED] ?: false -> LyricSupplementMode.Romanization
+                else -> LyricSupplementMode.Original
+            }
+        }
+
+    override val lyricTextSize: Flow<Long>
+        get() = dataStore.data.map { (it[LYRIC_TEXT_SIZE] ?: 24L).coerceIn(18L, 32L) }
+    override val lyricLineSpacing: Flow<Long>
+        get() = dataStore.data.map { (it[LYRIC_LINE_SPACING] ?: 28L).coerceIn(12L, 36L) }
+    override val lyricWordHighlightEnabled: Flow<Boolean>
+        get() = dataStore.data.map { it[LYRIC_WORD_HIGHLIGHT] ?: true }
+    override suspend fun setLyricTextSize(size: Long) {
+        dataStore.edit { it[LYRIC_TEXT_SIZE] = size.coerceIn(18L, 32L) }
+    }
+    override suspend fun setLyricLineSpacing(spacing: Long) {
+        dataStore.edit { it[LYRIC_LINE_SPACING] = spacing.coerceIn(12L, 36L) }
+    }
+    override suspend fun setLyricWordHighlightEnabled(enabled: Boolean) {
+        dataStore.edit { it[LYRIC_WORD_HIGHLIGHT] = enabled }
+    }
 
     override suspend fun updateLastScanTimestamp(timestampMillis: Long) {
         dataStore.edit { prefs -> prefs[LAST_SCAN_TIMESTAMP] = timestampMillis }
@@ -200,11 +246,17 @@ class DataStoreSettingsRepository constructor(
     }
 
     override suspend fun setLyricTranslationEnabled(enabled: Boolean) {
-        dataStore.edit { prefs -> prefs[LYRIC_TRANSLATION_ENABLED] = enabled }
+        dataStore.edit { prefs ->
+            prefs[LYRIC_TRANSLATION_ENABLED] = enabled
+            if (enabled) prefs[LYRIC_ROMANIZATION_ENABLED] = false
+        }
     }
 
     override suspend fun setLyricRomanizationEnabled(enabled: Boolean) {
-        dataStore.edit { prefs -> prefs[LYRIC_ROMANIZATION_ENABLED] = enabled }
+        dataStore.edit { prefs ->
+            prefs[LYRIC_ROMANIZATION_ENABLED] = enabled
+            if (enabled) prefs[LYRIC_TRANSLATION_ENABLED] = false
+        }
     }
 
     override val onlinePreferredQuality: Flow<String>
@@ -269,6 +321,9 @@ class DataStoreSettingsRepository constructor(
         val DESKTOP_LYRICS_COLOR = longPreferencesKey("desktop_lyrics_color")
         val COVER_CONTENT_COLOR_ENABLED = booleanPreferencesKey("cover_content_color_enabled")
         val LYRIC_TRANSLATION_ENABLED = booleanPreferencesKey("lyric_translation_enabled")
+        val LYRIC_TEXT_SIZE = longPreferencesKey("lyric_text_size")
+        val LYRIC_LINE_SPACING = longPreferencesKey("lyric_line_spacing")
+        val LYRIC_WORD_HIGHLIGHT = booleanPreferencesKey("lyric_word_highlight")
         val LYRIC_ROMANIZATION_ENABLED = booleanPreferencesKey("lyric_romanization_enabled")
         val ONLINE_PREFERRED_QUALITY = stringPreferencesKey("online_preferred_quality")
         val AI_SERVICE_NAME = stringPreferencesKey("ai_service_name")

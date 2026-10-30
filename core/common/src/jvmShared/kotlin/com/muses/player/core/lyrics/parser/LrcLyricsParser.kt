@@ -15,6 +15,7 @@ import com.muses.player.core.lyrics.model.NeteaseLyricParser
  */
 object LrcLyricsParser {
     private val latinLetter = Regex("[A-Za-z]")
+    private val kanaOrHangul = Regex("[\\p{IsHiragana}\\p{IsKatakana}\\p{IsHangul}]")
     private val hanCharacter = Regex("[\u3400-\u9FFF]")
 
     fun parse(
@@ -53,7 +54,8 @@ object LrcLyricsParser {
 
     private fun isTranslationPair(original: String, candidate: String): Boolean {
         if (candidate.contains("著作权") || candidate.contains("版权") || candidate.contains("翻译作品")) return false
-        return latinLetter.containsMatchIn(original) && !hanCharacter.containsMatchIn(original) &&
-            hanCharacter.containsMatchIn(candidate)
+        return (kanaOrHangul.containsMatchIn(original) ||
+            (latinLetter.containsMatchIn(original) && !hanCharacter.containsMatchIn(original))) &&
+            hanCharacter.containsMatchIn(candidate) && !kanaOrHangul.containsMatchIn(candidate)
     }
 }

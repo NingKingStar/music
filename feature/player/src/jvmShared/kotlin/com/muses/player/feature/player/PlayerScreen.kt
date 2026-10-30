@@ -98,7 +98,7 @@ import com.muses.player.core.ui.components.MusesCoverRadius
 import com.muses.player.feature.player.backdrop.FlowingLightBackdrop
 import com.muses.player.feature.player.lyric.AmllLyricLine
 import com.muses.player.core.lyrics.model.LyricsDocument
-import com.muses.player.feature.player.lyric.LyricsPanel
+import com.muses.player.feature.player.lyric.PlaybackLyricsPanel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -167,6 +167,8 @@ fun PlayerScreen(
     val shuffleModeEnabled by viewModel.shuffleModeEnabled.collectAsStateWithLifecycle()
     val parsedLines by viewModel.parsedLines.collectAsStateWithLifecycle()
     val lyricsDocument by viewModel.lyricsDocument.collectAsStateWithLifecycle()
+    val lyricTranslationSource by viewModel.lyricTranslationSource.collectAsStateWithLifecycle()
+    val lyricRomanizationSource by viewModel.lyricRomanizationSource.collectAsStateWithLifecycle()
     val lyricsLoading by viewModel.lyricsLoading.collectAsStateWithLifecycle()
     val hasTranslation by viewModel.hasTranslation.collectAsStateWithLifecycle()
     val translationEnabled by viewModel.translationEnabled.collectAsStateWithLifecycle()
@@ -253,10 +255,13 @@ fun PlayerScreen(
         com.muses.player.core.ui.components.LocalPlayerCoverFailure provides viewModel::onCoverLoadFailed,
         LocalPlaybackSourceDetails provides { showSourceDetails = true },
         LocalPlayerContentColor provides if (coverContentColorEnabled) contentColor else Color.White,
+        com.muses.player.feature.player.lyric.LocalPlayerLyricsCoverUri provides displayCover,
         LocalImmersiveFavoriteSong provides favoriteSong,
         com.muses.player.feature.player.lyric.LocalPlaybackLyricsRetry provides
             if (currentMeta?.isOnline == true) viewModel::retryLyrics else null,
         com.muses.player.feature.player.lyric.LocalPlaybackLyricsLoading provides lyricsLoading,
+        com.muses.player.feature.player.lyric.LocalPlaybackLyricsTranslationSource provides lyricTranslationSource,
+        com.muses.player.feature.player.lyric.LocalPlaybackLyricsRomanizationSource provides lyricRomanizationSource,
     ) {
         BoxWithConstraints(
         // clipToBounds：宿主在转场中平移整页，这里裁掉视口外内容，避免屏外绘制。
@@ -392,7 +397,7 @@ fun PlayerScreen(
                 TabletImmersiveLayout(
                     title = title,
                     artist = artist,
-                    sourceSummary = playbackSummary.orEmpty(),
+                    sourceSummary = if (activePanel == 1) "" else playbackSummary.orEmpty(),
                     coverUri = displayCover,
                     lines = parsedLines,
                     lyricsDocument = lyricsDocument,
@@ -433,7 +438,7 @@ fun PlayerScreen(
                 PhoneImmersiveLayout(
                     title = title,
                     artist = artist,
-                    sourceSummary = playbackSummary.orEmpty(),
+                    sourceSummary = if (activePanel == 1) "" else playbackSummary.orEmpty(),
                     coverUri = displayCover,
                     lines = parsedLines,
                     lyricsDocument = lyricsDocument,
@@ -707,8 +712,9 @@ private fun PhoneImmersiveLayout(
                     onSeekDragActive = { isSeekDragging = it },
                     contentAlpha = { contentAlphaFor(transitionProgress()) },
                 )
-                1 -> LyricsPanel(
+                1 -> PlaybackLyricsPanel(
                     document = lyricsDocument,
+                    onPlayPause = onPlayPause,
                     positionMs = lyricPosition,
                     isPlaying = isPlaying,
                     onSeek = onSeek,
@@ -821,8 +827,9 @@ private fun TabletImmersiveLayout(
                     },
             ) {
                 // 歌词面板（V2 范围外，不动）：NativeLyricsPanel 手势分流保持原生
-                LyricsPanel(
+                PlaybackLyricsPanel(
                     document = lyricsDocument,
+                    onPlayPause = onPlayPause,
                     positionMs = lyricPosition,
                     isPlaying = isPlaying,
                     onSeek = onSeek,
