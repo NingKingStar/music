@@ -19,12 +19,7 @@ import kotlinx.serialization.json.Json
 import org.koin.core.context.GlobalContext
 import java.io.File
 import java.security.MessageDigest
-
-internal data class AndroidUpdateState(
-    val release: AndroidReleaseInfo? = null, val checking: Boolean = false, val status: String = "尚未检查更新",
-    val error: String? = null, val downloadId: Long = -1, val progress: Int? = null, val ready: Boolean = false,
-    val autoCheck: Boolean = true, val wifiDownload: Boolean = false, val checkedAt: Long = 0, val ignored: String? = null,
-)
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** 下载由系统托管；进程重启后根据任务ID恢复，不保存任何安装授权。 */
 internal class AndroidUpdateManager private constructor(private val context: Context) {
@@ -32,6 +27,10 @@ internal class AndroidUpdateManager private constructor(private val context: Con
     private val downloads = context.getSystemService(DownloadManager::class.java)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mutex = Mutex()
+    private val checkGate = AtomicBoolean(false)
+    private val downloadGate = AtomicBoolean(false)
+    private val refreshGate = AtomicBoolean(false)
+    private val installGate = AtomicBoolean(false)
     private val json = Json { ignoreUnknownKeys = true }
     private val installed by lazy { context.packageManager.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES) }
     private val file get() = File(requireNotNull(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)) { "设备存储暂不可用，请稍后重试" }, "updates/update.apk")
@@ -45,13 +44,25 @@ internal class AndroidUpdateManager private constructor(private val context: Con
     fun newer(release: AndroidReleaseInfo?) = release != null &&
         (release.versionCode?.let { it > installed.longVersionCode } ?: (compareVersions(release.versionName, currentVersion) > 0))
     private fun change(block: (AndroidUpdateState) -> AndroidUpdateState) { mutable.update(block) }
-    private fun action(block: suspend () -> Unit) { scope.launch {
+    private fun action(work: UpdateWork = UpdateWork.DOWNLOAD, gate: AtomicBoolean? = null, block: suspend () -> Unit) {
+        if (gate != null && !gate.compareAndSet(false, true)) return
+        scope.launch {
         try { mutex.withLock { block() } }
         catch (e: CancellationException) { throw e }
-        catch (e: Exception) { change { it.copy(checking = false, error = e.message ?: "更新操作失败，请重试") } }
+        catch (e: Exception) { change { it.failed(work, e.message ?: "更新操作失败，请重试") } }
+        finally { gate?.set(false) }
     } }
     fun foreground() {
-        refresh()
+        action(UpdateWork.CHECK, refreshGate) {
+            val release = state.value.release
+            if (release != null && !newer(release)) {
+                if (state.value.downloadId >= 0) downloads.remove(state.value.downloadId)
+                prefs.edit().remove("download_id").remove("release").apply()
+                if (file.exists()) file.delete()
+                change { it.copy(release = null, downloadId = -1, progress = null, ready = false, verifying = false,
+                    error = null, status = "当前版本已安装") }
+            } else refreshLocked()
+        }
         val last = prefs.getLong("last_attempt", 0)
         val age = System.currentTimeMillis() - last
         if (state.value.autoCheck && (last == 0L || age !in 0..86_399_999L)) check(false)
@@ -62,13 +73,13 @@ internal class AndroidUpdateManager private constructor(private val context: Con
         if (value) download(automatic = true)
         else if (prefs.getBoolean("download_automatic", false) && !state.value.ready) cancel()
     }
-    fun check(manual: Boolean = true) = action {
+    fun check(manual: Boolean = true) = action(UpdateWork.CHECK, checkGate) {
         if (state.value.downloadId >= 0) return@action
         // 再次检查节流状态，避免多次前台事件排队后重复请求。
         val elapsed = System.currentTimeMillis() - prefs.getLong("last_attempt", 0)
         if (!manual && elapsed in 0..86_399_999L) return@action
         prefs.edit().putLong("last_attempt", System.currentTimeMillis()).apply()
-        change { it.copy(checking = true, error = null, status = "正在检查更新…") }
+        change { it.copy(checking = true, progress = null, error = null, status = "正在检查更新…") }
         val release = checkAndroidRelease(currentVersion, context.packageName)
         val time = System.currentTimeMillis()
         prefs.edit().putString("release", json.encodeToString(AndroidReleaseInfo.serializer(), release)).putLong("checked_at", time).apply()
@@ -76,12 +87,13 @@ internal class AndroidUpdateManager private constructor(private val context: Con
             status = if (newer(release)) "发现新版本 ${release.versionName}" else "当前已是最新版本") }
         if (state.value.wifiDownload && state.value.ignored != release.versionName) enqueue(automatic = true)
     }
-    fun download(automatic: Boolean = false) = action { enqueue(automatic) }
+    fun download(automatic: Boolean = false) = action(UpdateWork.DOWNLOAD, downloadGate) { enqueue(automatic) }
+    fun redownload() = action(UpdateWork.DOWNLOAD, downloadGate) { cancelLocked(); enqueue(automatic = false) }
     private fun enqueue(automatic: Boolean) {
         val release = state.value.release ?: return
         if (automatic && (!state.value.wifiDownload || state.value.ignored == release.versionName)) return
         if (!newer(release) || state.value.downloadId >= 0) return
-        require(!release.sha256.isNullOrBlank()) { "发布方未提供校验值，请前往 GitHub 下载" }
+        require(!release.sha256.isNullOrBlank()) { "发布方未提供校验值，请使用网页下载" }
         require(isOfficialReleaseAsset(release.downloadUrl)) { "安装包地址无效" }
         file.parentFile?.mkdirs()
         if (file.exists()) require(file.delete()) { "无法清理旧安装包，请重试" }
@@ -101,16 +113,16 @@ internal class AndroidUpdateManager private constructor(private val context: Con
         if (state.value.downloadId >= 0) downloads.remove(state.value.downloadId)
         prefs.edit().remove("download_id").apply()
         file.delete()
-        change { it.copy(downloadId = -1, ready = false, progress = null, error = null, status = "下载已取消，可重新下载") }
+        change { it.copy(downloadId = -1, ready = false, verifying = false, installing = false, progress = null, error = null, status = "下载已取消，可重新下载") }
     }
     fun ignore() = action {
         val version = state.value.release?.versionName ?: return@action
         cancelLocked(); prefs.edit().putString("ignored", version).apply()
         change { it.copy(ignored = version, status = "已忽略此版本，可手动下载") }
     }
-    fun refresh() = action { refreshLocked() }
+    fun refresh() = action(UpdateWork.VERIFY, refreshGate) { refreshLocked() }
     suspend fun completed() { mutex.withLock {
-        try { refreshLocked() } catch (e: Exception) { change { it.copy(error = e.message ?: "更新校验失败", ready = false) } }
+        try { refreshLocked() } catch (e: Exception) { change { it.failed(UpdateWork.VERIFY, e.message ?: "更新校验失败") } }
     } }
     private fun refreshLocked() {
         val id = state.value.downloadId
@@ -118,24 +130,24 @@ internal class AndroidUpdateManager private constructor(private val context: Con
         downloads.query(DownloadManager.Query().setFilterById(id)).use { cursor ->
             if (!cursor.moveToFirst()) {
                 prefs.edit().remove("download_id").apply()
-                change { it.copy(downloadId = -1, ready = false, error = "下载任务已被移除，请重新下载") }; return
+                change { it.failed(UpdateWork.DOWNLOAD, "下载任务已被移除，请重新下载") }; return
             }
             fun number(column: String) = cursor.getLong(cursor.getColumnIndexOrThrow(column))
             when (number(DownloadManager.COLUMN_STATUS).toInt()) {
                 DownloadManager.STATUS_SUCCESSFUL -> {
                     try {
-                        change { it.copy(status = "正在核验安装包…", progress = 100) }
+                        change { it.copy(status = "正在核验安装包…", verifying = true, progress = 100) }
                         verify()
-                        change { it.copy(ready = true, error = null, status = "安装包已就绪，点击安装") }
+                        change { it.copy(ready = true, verifying = false, error = null, status = "安装包已就绪，点击安装") }
                     } catch (e: Exception) {
                         downloads.remove(id); file.delete(); prefs.edit().remove("download_id").apply()
-                        change { it.copy(downloadId = -1, ready = false, progress = null, error = e.message ?: "安装包校验失败，请重试") }
+                        change { it.failed(UpdateWork.VERIFY, e.message ?: "安装包校验失败，请重试") }
                     }
                 }
                 DownloadManager.STATUS_FAILED -> {
                     val reason = number(DownloadManager.COLUMN_REASON)
                     downloads.remove(id); prefs.edit().remove("download_id").apply()
-                    change { it.copy(downloadId = -1, ready = false, error = "更新下载失败（$reason），可重试或前往 GitHub 下载") }
+                    change { it.failed(UpdateWork.DOWNLOAD, "下载失败（$reason），请检查网络后重试，或选择网页下载") }
                 }
                 else -> {
                     val total = number(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
@@ -162,10 +174,15 @@ internal class AndroidUpdateManager private constructor(private val context: Con
         verifyAndroidUpdateIdentity(release, AndroidPackageIdentity(context.packageName, installed.versionName, installed.longVersionCode, old),
             AndroidPackageIdentity(archive.packageName, archive.versionName, archive.longVersionCode, next))
     }
-    fun install() = action {
+    fun install() = action(UpdateWork.INSTALL, installGate) {
         require(state.value.ready) { "请先下载并核验安装包" }
         require(!GlobalContext.get().get<PlaybackPort>().isPlaying.value) { "请先暂停音乐，再安装更新" }
-        verify()
+        change { it.copy(installing = true, error = null, status = "正在准备安装…") }
+        try { verify() } catch (e: Exception) {
+            cancelLocked()
+            change { it.failed(UpdateWork.VERIFY, e.message ?: "安装包已失效，请重新下载") }
+            return@action
+        }
         withContext(Dispatchers.Main) {
             if (!context.packageManager.canRequestPackageInstalls()) {
                 context.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -174,8 +191,10 @@ internal class AndroidUpdateManager private constructor(private val context: Con
                 val uri = FileProvider.getUriForFile(context, context.packageName + ".updates", file)
                 context.startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, "application/vnd.android.package-archive")
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK))
+                change { it.copy(status = "请在系统窗口确认安装，取消后可再次安装") }
             }
         }
+        change { it.copy(installing = false) }
     }
     companion object {
         @Volatile private var instance: AndroidUpdateManager? = null

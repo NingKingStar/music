@@ -20,7 +20,6 @@ import com.muses.player.core.ui.components.SettingsAboutFeedbackContent
 import com.muses.player.core.ui.components.SettingsBlockTitle
 import com.muses.player.core.ui.components.SettingsScreen
 import com.muses.player.feature.shell.platform.AppVersionProvider
-import com.muses.player.feature.shell.platform.InAppUpdateSection
 import com.muses.player.feature.shell.platform.rememberShellPlatformActions
 import com.muses.player.feature.shell.platform.supportsInAppUpdate
 
@@ -62,6 +61,7 @@ fun SettingsScreen(
     // AI 服务配置二级页入口（设置页「AI 推荐」→「AI 服务」箭头进入）。
     onOpenAiSettings: () -> Unit,
     onOpenSyncSettings: () -> Unit,
+    onOpenUpdate: () -> Unit,
 ) {
     val actions = rememberShellPlatformActions()
     val versionProvider = koinInject<AppVersionProvider>()
@@ -115,14 +115,6 @@ fun SettingsScreen(
                     )
                 }
                 AiRecommendSettingSection(onOpenAiSettings = onOpenAiSettings)
-
-                // ---- 应用更新（两端使用各自下载安装流程，隐藏重复外链检查入口） ----
-                if (supportsInAppUpdate) {
-                    InAppUpdateSection(
-                        versionName = versionProvider.versionName,
-                        onOpenUrl = actions.openUrl,
-                    )
-                }
 
                 // ---- 关于 ----
                 SettingsAboutFeedbackContent(

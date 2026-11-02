@@ -14,19 +14,23 @@ import com.muses.player.core.data.store.platformNowMs
 
 data class OnlineArtistState(val artist: OnlineArtistRef? = null, val candidates: List<OnlineArtistRef> = emptyList(),
     val confirmed: Boolean = false, val songs: List<OnlineSearchResult> = emptyList(), val loading: Boolean = true,
-    val hasMore: Boolean = false, val nextPage: Int = 1, val error: String? = null, val cached: Boolean = false)
+    val hasMore: Boolean = false, val nextPage: Int = 1, val error: String? = null, val cached: Boolean = false,
+    val profile: ArtistProfile? = null, val profileLoading: Boolean = false, val profileError: Boolean = false)
 
 class OnlineArtistViewModel(private val service: OnlineArtistService, private val cache: ArtistPageCache,
     private val playback: PlaybackPort, private val settings: SettingsRepository, private val seed: Song) : ViewModel() {
     private val mutable = MutableStateFlow(OnlineArtistState())
     val state = mutable.asStateFlow()
     private var job: Job? = null
+    private var resolutionJob: Job? = null
+    private var profileJob: Job? = null
+    private var retryRefresh = false
     private var generation = 0L
     init { resolve() }
     fun resolve() {
-        val token = ++generation; job?.cancel()
+        val token = ++generation; resolutionJob?.cancel(); job?.cancel(); profileJob?.cancel()
         mutable.value = OnlineArtistState()
-        job = viewModelScope.launch {
+        resolutionJob = viewModelScope.launch {
             try {
                 val result = service.resolve(seed)
                 if (token != generation) return@launch
@@ -38,15 +42,39 @@ class OnlineArtistViewModel(private val service: OnlineArtistService, private va
         }
     }
     fun select(artist: OnlineArtistRef) {
-        job?.cancel(); ++generation
-        mutable.value = mutable.value.copy(artist = artist, songs = emptyList(), loading = false, hasMore = true, nextPage = 1, error = null, cached = false)
+        resolutionJob?.cancel(); job?.cancel(); profileJob?.cancel(); ++generation; retryRefresh = false
+        mutable.value = mutable.value.copy(artist = artist, songs = emptyList(), loading = false, hasMore = true, nextPage = 1, error = null, cached = false,
+            profile = null, profileLoading = true, profileError = false)
         load()
+        loadProfile()
+    }
+    fun retry() { if (state.value.artist == null) resolve() else load(retryRefresh) }
+    fun refresh() { load(true); loadProfile(true) }
+    fun loadProfile(force: Boolean = false) {
+        val artist = state.value.artist ?: return
+        val token = generation
+        profileJob?.cancel()
+        mutable.update { it.copy(profileLoading = true, profileError = false) }
+        profileJob = viewModelScope.launch {
+            try {
+                val key = "${artist.platform}:${artist.id}"
+                val saved = try { cache.loadProfile(key) } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
+                if (token != generation) return@launch
+                if (saved != null) mutable.update { it.copy(profile = saved.value) }
+                val profile = if (!force && saved != null && platformNowMs() - saved.at in 0..21_600_000) saved.value else service.profile(artist, force)
+                if (token != generation) return@launch
+                mutable.update { it.copy(profile = profile, profileLoading = false, profileError = false) }
+                try { cache.saveProfile(key, profile) } catch (e: CancellationException) { throw e } catch (_: Exception) { }
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { if (token == generation) mutable.update { it.copy(profileLoading = false, profileError = true) } }
+        }
     }
     fun load(refresh: Boolean = false) {
         val current = state.value
         val artist = current.artist ?: return
         if (current.loading || (!refresh && !current.hasMore)) return
         val page = if (refresh) 1 else current.nextPage
+        retryRefresh = refresh
         val token = generation
         mutable.value = current.copy(loading = true, error = null)
         job = viewModelScope.launch {

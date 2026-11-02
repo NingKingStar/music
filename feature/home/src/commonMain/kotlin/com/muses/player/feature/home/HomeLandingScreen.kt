@@ -60,6 +60,7 @@ fun HomeScreen(
 ) {
     val scheme = MiuixTheme.colorScheme
     val state by viewModel.state.collectAsState()
+    val chartCovers by viewModel.chartCovers.collectAsState()
     val preview by viewModel.recommendationPreview.collectAsState()
     val favorites = LocalFavoriteSongs.current
     val previewTracks = preview.filter { !favorites.isInLibrary(it.toSong("online")) }.take(3)
@@ -124,7 +125,8 @@ fun HomeScreen(
                         ExploreSectionHeader("排行榜", "全部榜单", onOpenCharts)
                     }
                     item(key = "charts") {
-                        ExploreCharts(state.chart,
+                        ExploreCharts(state.chart, chartCovers,
+                            onEnsureCover = viewModel::ensureChartCover,
                             onRetry = { viewModel.loadCharts(forceRefresh = true) },
                             onOpenChart = { onOpenChart(it.platform, it.chartId, it.name) })
                     }
@@ -268,9 +270,9 @@ private fun PlaylistMetadata(playlist: OnlinePlaylist) {
         marqueeEnabled = false)
 }
 
-/** 首页只加载榜单目录；进入具体榜单后再整榜获取歌曲。 */
+/** 首页仅为可见榜单按需取首首歌曲封面，不预取整榜歌曲。 */
 @Composable
-private fun ExploreCharts(state: ChartSectionState, onRetry: () -> Unit, onOpenChart: (OnlineChart) -> Unit) {
+private fun ExploreCharts(state: ChartSectionState, covers: Map<String, String>, onEnsureCover: (OnlineChart) -> Unit, onRetry: () -> Unit, onOpenChart: (OnlineChart) -> Unit) {
     val scheme = MiuixTheme.colorScheme
     val charts = state.charts.take(4)
     if (charts.isEmpty()) {
@@ -282,9 +284,11 @@ private fun ExploreCharts(state: ChartSectionState, onRetry: () -> Unit, onOpenC
     }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         charts.forEach { chart ->
+            LaunchedEffect(chart.platform, chart.chartId) { onEnsureCover(chart) }
+            val cover = covers["${chart.platform}:${chart.chartId}"]
             Box(Modifier.fillMaxWidth().squircleClip(18.dp).background(scheme.surfaceContainerHigh)
                 .homeCardClick { onOpenChart(chart) }) {
-                ExploreCoverBackground(chart.coverUrl, Modifier.matchParentSize())
+                ExploreCoverBackground(cover, Modifier.matchParentSize())
                 Row(Modifier.fillMaxWidth().padding(start = 18.dp, end = 14.dp, top = 12.dp, bottom = 12.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -298,7 +302,7 @@ private fun ExploreCharts(state: ChartSectionState, onRetry: () -> Unit, onOpenC
                     Box(Modifier.size(78.dp, 76.dp), contentAlignment = Alignment.Center) {
                         Box(Modifier.size(64.dp).offset(x = 4.dp).rotate(9f).squircleClip(12.dp)
                             .background(scheme.onBackground.copy(alpha = 0.10f)))
-                        MusesCover(chart.coverUrl, size = 64.dp,
+                        MusesCover(cover, size = 64.dp,
                             modifier = Modifier.rotate(-4f).shadow(4.dp, RoundedCornerShape(12.dp)),
                             contentDescription = chart.name + "封面")
                     }

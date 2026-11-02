@@ -121,9 +121,8 @@ class HomeViewModel(
     private val coverAttempts = mutableMapOf<String, Long>()
     private val coverPermits = kotlinx.coroutines.sync.Semaphore(2)
 
-    /** 仅由可见卡片缺图/原图加载失败触发，最多两个补图任务并发。 */
-    fun ensureChartCover(chart: OnlineChart, originalFailed: Boolean = false) {
-        if (!originalFailed && !chart.coverUrl.isNullOrBlank()) return
+    /** 可见榜单统一使用首首歌曲封面，按需读取，最多两个任务并发。 */
+    fun ensureChartCover(chart: OnlineChart) {
         val key = "${chart.platform}:${chart.chartId}"
         val now = Clock.System.now().toEpochMilliseconds()
         if (key in _chartCovers.value || (coverAttempts[key]?.let { now - it in 0..300_000 } == true)) return
@@ -133,14 +132,13 @@ class HomeViewModel(
             var acquired = false
             try {
                 coverPermits.acquire(); acquired = true
-                val cached = chartCacheStore.loadCover(chart.platform, chart.chartId)
-                    ?: chartCacheStore.loadSongs(chart.platform, chart.chartId)?.songs?.firstOrNull()?.coverUrl
-                val url = cached?.takeIf { it.isNotBlank() } ?: kotlinx.coroutines.withTimeoutOrNull(5_000) {
-                    chartService.chartSongs(chart.platform, chart.chartId, pageSize = 1).results.firstOrNull()?.coverUrl
-                }?.takeIf { it.isNotBlank() }
+                val url = kotlinx.coroutines.withTimeoutOrNull(5_000) {
+                    loadChartSongCover(chart, chartCacheStore) {
+                        chartService.chartSongs(chart.platform, chart.chartId, pageSize = 1).results
+                    }
+                }
                 if (url != null) {
                     _chartCovers.value = _chartCovers.value + (key to url)
-                    runCatching { chartCacheStore.saveCover(chart.platform, chart.chartId, url) }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) { coverAttempts.remove(key); throw e }
             catch (_: Exception) { }

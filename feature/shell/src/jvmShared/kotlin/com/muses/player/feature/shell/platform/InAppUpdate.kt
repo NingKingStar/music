@@ -19,4 +19,8 @@ expect fun appUpdateHint(): String?
 expect fun InAppUpdateSection(
     versionName: String,
     onOpenUrl: (String) -> Unit,
+    onOpenUpdate: () -> Unit,
 )
+
+@Composable
+expect fun AppUpdateScreen(versionName: String, onBack: () -> Unit, onOpenUrl: (String) -> Unit)

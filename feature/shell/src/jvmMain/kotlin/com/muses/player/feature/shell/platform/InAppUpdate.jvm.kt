@@ -55,6 +55,7 @@ private fun formatMB(bytes: Long): String =
 actual fun InAppUpdateSection(
     versionName: String,
     onOpenUrl: (String) -> Unit,
+    onOpenUpdate: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     var ui by remember { mutableStateOf<UpdateUi>(UpdateUi.Idle) }
@@ -224,3 +225,10 @@ actual fun AppUpdateHost() {}
 
 @Composable
 actual fun appUpdateHint(): String? = null
+
+@Composable
+actual fun AppUpdateScreen(versionName: String, onBack: () -> Unit, onOpenUrl: (String) -> Unit) {
+    com.muses.player.core.ui.components.SettingsScreen(onBack = onBack, extraContent = {
+        InAppUpdateSection(versionName, onOpenUrl, {})
+    })
+}

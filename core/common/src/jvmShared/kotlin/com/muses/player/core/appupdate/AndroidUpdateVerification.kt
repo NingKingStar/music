@@ -8,7 +8,7 @@ data class AndroidPackageIdentity(val packageName: String, val versionName: Stri
 /** 下载完成和每次唤起安装前都重新核验，避免损坏包或旧包被安装。 */
 fun verifyAndroidUpdateFile(file: File, release: AndroidReleaseInfo) {
     require(file.isFile && file.length() == release.size) { "安装包大小不符，请重新下载" }
-    require(!release.sha256.isNullOrBlank()) { "缺少安装包校验值，请前往 GitHub 下载" }
+    require(!release.sha256.isNullOrBlank()) { "缺少安装包校验值，请使用网页下载" }
     val md = MessageDigest.getInstance("SHA-256")
     file.inputStream().use { input ->
         val buffer = ByteArray(65536)

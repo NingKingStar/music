@@ -504,6 +504,8 @@ private fun MusesAppContent(openSettingsRequest: Long) {
         val playerOpen = showPlayerOverlay
         val playerTransitionScope = rememberCoroutineScope()
         var playerTransitionJob by remember { mutableStateOf<Job?>(null) }
+        var artistPlayerReturn by remember { mutableStateOf<MusesRoute.OnlineArtist?>(null) }
+        var openingArtist by remember { mutableStateOf(false) }
         fun animatePlayerTo(target: Boolean) {
             playerTransitionJob?.cancel()
             playerTransitionJob = playerTransitionScope.launch {
@@ -540,6 +542,15 @@ private fun MusesAppContent(openSettingsRequest: Long) {
         fun closePlayer() {
             showPlayerOverlay = false
             animatePlayerTo(target = false)
+        }
+        // 原生返回、侧滑返回和页内返回都恢复进入前的播放器。
+        LaunchedEffect(backStack.lastOrNull(), artistPlayerReturn) {
+            val returning = artistPlayerReturn
+            if (returning != null && returning !in backStack) {
+                delay(240)
+                artistPlayerReturn = null
+                openPlayer()
+            }
         }
         LaunchedEffect(openSettingsRequest) {
             if (openSettingsRequest > 0L) {
@@ -858,8 +869,20 @@ private fun MusesAppContent(openSettingsRequest: Long) {
                     backStack.pushUnique(MusesRoute.OnlineSearch(keyword))
                 },
                 com.muses.player.core.ui.components.LocalOpenSongArtist provides { song ->
-                    closePlayer()
-                    backStack.pushUnique(MusesRoute.OnlineArtist(song.id, song.sourceId, song.path, song.title, song.artist))
+                    if (!openingArtist) {
+                        openingArtist = true
+                        playerTransitionJob?.cancel()
+                        playerTransitionJob = playerTransitionScope.launch {
+                            try {
+                                // 先结束当前面板过渡，再让导航接管，避免两种动画同时修改画面。
+                                playerProgressState.animateTo(0f, tween(140, easing = FastOutSlowInEasing))
+                                showPlayerOverlay = false
+                                val route = MusesRoute.OnlineArtist(song.id, song.sourceId, song.path, song.title, song.artist)
+                                artistPlayerReturn = route
+                                backStack.pushUnique(route)
+                            } finally { openingArtist = false }
+                        }
+                    }
                 },
                 com.muses.player.core.ui.components.LocalFavoriteSongs provides favorites,
                 com.muses.player.core.ui.components.LocalSetSongLiked provides setSongLiked,
@@ -1303,10 +1326,16 @@ private fun AppNavHost(
                 onBack = { backStack.pop() },
                 onOpenAiSettings = { backStack.pushUnique(MusesRoute.AiSettings) },
                 onOpenSyncSettings = { backStack.pushUnique(MusesRoute.SyncSettings) },
+                onOpenUpdate = { backStack.pushUnique(MusesRoute.AppUpdate) },
             )
         }
         entry<MusesRoute.AiSettings>(swipeDismiss = NavSwipeDirection.LeftToRight) {
             AiSettingsScreen(onBack = { backStack.pop() })
+        }
+        entry<MusesRoute.AppUpdate>(swipeDismiss = NavSwipeDirection.LeftToRight) {
+            val version = org.koin.compose.koinInject<com.muses.player.feature.shell.platform.AppVersionProvider>()
+            val actions = com.muses.player.feature.shell.platform.rememberShellPlatformActions()
+            com.muses.player.feature.shell.platform.AppUpdateScreen(version.versionName, onBack = { backStack.pop() }, onOpenUrl = actions.openUrl)
         }
         entry<MusesRoute.SyncSettings>(swipeDismiss = NavSwipeDirection.LeftToRight) {
             com.muses.player.sync.SyncSettingsScreen(onBack = { backStack.pop() })
@@ -1431,6 +1460,7 @@ private fun MainTabPage(destination: NavDestination, backStack: NavBackStack) {
                 onOpenStatistics = { backStack.pushUnique(MusesRoute.Statistics) },
                 onOpenHistory = { backStack.pushUnique(MusesRoute.History) },
                 onOpenSettings = { backStack.pushUnique(MusesRoute.Settings) },
+                onOpenUpdate = { backStack.pushUnique(MusesRoute.AppUpdate) },
                 onOpenDownloads = { backStack.pushUnique(MusesRoute.Downloads) },
                 onOpenLibrary = { backStack.pushUnique(MusesRoute.LocalLibrary) },
             )

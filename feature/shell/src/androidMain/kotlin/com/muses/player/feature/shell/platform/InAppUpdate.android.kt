@@ -1,19 +1,29 @@
 package com.muses.player.feature.shell.platform
 
-import androidx.compose.runtime.*
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.Modifier
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.*
+import androidx.compose.ui.draw.*
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.semantics.*
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.*
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.muses.player.core.ui.components.*
+import com.muses.player.core.ui.icons.TablerIcons
+import com.muses.player.core.ui.theme.LocalBottomChromePadding
 import kotlinx.coroutines.delay
 import top.yukonga.miuix.kmp.basic.*
-import top.yukonga.miuix.kmp.preference.SwitchPreference
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -50,46 +60,34 @@ actual fun appUpdateHint(): String? {
         if (state.ready) "新版已下载，等待安装" else "有新版本 ${state.release?.versionName}" else null
 }
 
+/** 设置仅保留入口，下载与选项统一在独立页面中。 */
 @Composable
-actual fun InAppUpdateSection(versionName: String, onOpenUrl: (String) -> Unit) {
+actual fun InAppUpdateSection(versionName: String, onOpenUrl: (String) -> Unit, onOpenUpdate: () -> Unit) {
     val context = LocalContext.current
     val manager = remember { AndroidUpdateManager.get(context) }
     val state by manager.state.collectAsState()
-    var details by remember { mutableStateOf(false) }
-    val release = state.release
-    val newer = manager.newer(release)
-    SettingsBlockTitle("应用更新")
-    Card(Modifier.padding(horizontal = 12.dp)) {
-        BasicComponent(title = if (newer) "发现新版 ${release?.versionName}" else "检查更新",
-            summary = state.error ?: state.status, enabled = !state.checking,
-            onClick = { if (newer) details = true else manager.check() })
-        BasicComponent(title = "当前版本 $versionName", summary = if (state.checkedAt == 0L) "尚未成功检查" else
-            "上次检查：" + SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(state.checkedAt)))
-        SwitchPreference(title = "自动检查更新", summary = "每天首次打开时检查，不打断播放",
-            checked = state.autoCheck, onCheckedChange = manager::setAutoCheck)
-        SwitchPreference(title = "仅 Wi-Fi 自动下载安装包", summary = "安装前仍需你确认",
-            checked = state.wifiDownload, onCheckedChange = manager::setWifiDownload)
-        if (newer || state.error != null) BasicComponent(title = "重新检查", enabled = !state.checking && state.downloadId < 0, onClick = { manager.check() })
+    val colors = MiuixTheme.colorScheme
+    Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp))
+        .background(colors.surface).clickable(onClick = onOpenUpdate).padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(colors.primary.copy(alpha = .09f)), contentAlignment = Alignment.Center) {
+            Icon(TablerIcons.Refresh, null, Modifier.size(20.dp), tint = colors.primary)
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("应用更新", fontSize = 16.sp, fontWeight = FontWeight.Medium)
+            Text(if (manager.newer(state.release)) "发现新版 ${state.release?.versionName}" else "当前版本 $versionName", color = colors.onSurface.copy(alpha = .55f), fontSize = 12.sp)
+        }
+        Icon(TablerIcons.ChevronRight, null, Modifier.size(18.dp), tint = colors.onSurface.copy(alpha = .4f))
     }
-    if (details && release != null) {
-        MusesFormSheet(title = "Muses ${release.versionName}",
-            message = "当前 $versionName · 安装包 %.1f MB".format(release.size / 1048576.0),
-            confirmText = when { state.ready -> "立即安装"; state.downloadId >= 0 -> "正在下载…"; else -> "下载更新" },
-            confirmEnabled = state.ready || (state.downloadId < 0 && release.sha256 != null),
-            dismissText = "稍后", onDismiss = { details = false },
-            onConfirm = { if (state.ready) manager.install() else manager.download() },
-            content = {
-                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(release.notes.ifBlank { "此版本未提供更新说明" },
-                        Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState()))
-                    Text(state.error ?: (state.status + (state.progress?.let { " $it%" } ?: "")))
-                    if (release.sha256 == null) Text("此版本缺少校验值，请前往 GitHub 下载")
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (state.downloadId >= 0) MusesTextButton(text = "取消下载", onClick = manager::cancel)
-                        MusesTextButton(text = "忽略本版", onClick = { manager.ignore(); details = false })
-                        MusesTextButton(text = "GitHub 下载", onClick = { onOpenUrl(release.pageUrl) })
-                    }
-                }
-            })
-    }
+}
+
+@Composable
+actual fun AppUpdateScreen(versionName: String, onBack: () -> Unit, onOpenUrl: (String) -> Unit) {
+    val context = LocalContext.current
+    val manager = remember { AndroidUpdateManager.get(context) }
+    val state by manager.state.collectAsState()
+    val actions = remember(manager) { UpdatePageActions(check = { manager.check() }, download = { manager.download() },
+        cancel = manager::cancel, install = manager::install, ignore = manager::ignore,
+        setAutoCheck = manager::setAutoCheck, setWifiDownload = manager::setWifiDownload, redownload = manager::redownload) }
+    UpdateDetailsPage(versionName, state, manager.newer(state.release), onBack, onOpenUrl, actions)
 }

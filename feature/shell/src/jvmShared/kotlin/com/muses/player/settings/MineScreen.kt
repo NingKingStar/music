@@ -26,6 +26,7 @@ fun MineScreen(
     onOpenStatistics: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenUpdate: () -> Unit,
     onOpenDownloads: () -> Unit,
     onOpenLibrary: () -> Unit,
 ) {
@@ -56,7 +57,10 @@ fun MineScreen(
             }
             SettingsBlockTitle("应用")
             Card(modifier = Modifier.padding(horizontal = 12.dp)) {
-                ArrowPreference(title = "设置", summary = com.muses.player.feature.shell.platform.appUpdateHint(), onClick = onOpenSettings)
+                ArrowPreference(title = "设置", onClick = onOpenSettings)
+                if (com.muses.player.feature.shell.platform.supportsInAppUpdate) {
+                    ArrowPreference(title = "检查更新", summary = com.muses.player.feature.shell.platform.appUpdateHint(), onClick = onOpenUpdate)
+                }
             }
             Spacer(Modifier.height(16.dp + LocalBottomChromePadding.current))
         }

@@ -16,11 +16,61 @@ import com.muses.player.core.data.store.platformNowMs
 data class ArtistSongPage(val songs: List<OnlineSearchResult>, val page: Int, val hasMore: Boolean)
 data class ArtistResolution(val artists: List<OnlineArtistRef>, val confirmed: Boolean)
 
+@Serializable
+data class ArtistProfile(val artist: OnlineArtistRef, val biography: String = "", val aliases: List<String> = emptyList(),
+    val songCount: Long? = null, val albumCount: Long? = null)
+
 /** 目录服务独立于音源脚本；只加载进入页面需要的分页，不解析播放直链。 */
 class OnlineArtistService(private val http: SearchHttp = SearchHttp()) {
     private data class Entry(val page: ArtistSongPage, val time: Long)
     private val pages = LinkedHashMap<String, Entry>()
     private val locks = KeyedRequestLock<String>()
+    private val profiles = LinkedHashMap<String, Pair<ArtistProfile, Long>>()
+
+    suspend fun profile(artist: OnlineArtistRef, force: Boolean = false): ArtistProfile {
+        require(validArtist(artist)) { "歌手身份无效" }
+        val key = "profile:${artist.platform}:${artist.id}"
+        return locks.withKey(key) {
+            val saved = synchronized(profiles) { profiles[key] }
+            if (!force && saved != null && platformNowMs() - saved.second in 0..21_600_000) return@withKey saved.first
+            val result = withTimeout(10_000) {
+                if (artist.platform == "wy") {
+                    val root = http.parseObject(http.getText("https://music.163.com/api/artist/${artist.id}", "https://music.163.com/"))
+                    require(root.long("code") == 200L) { "歌手资料暂不可用" }
+                    val detail = root.obj("artist") ?: error("歌手资料返回不完整")
+                    require(detail.str("id") == artist.id) { "歌手资料身份不一致" }
+                    var bio = cleanBiography(detail.str("briefDesc"))
+                    if (bio.isBlank()) {
+                        try {
+                            val more = withTimeoutOrNull(2_500) { http.parseObject(http.getText("https://music.163.com/api/artist/introduction?id=${artist.id}", "https://music.163.com/")) }
+                            bio = cleanBiography(more?.str("briefDesc"))
+                        } catch (e: CancellationException) { throw e } catch (_: Exception) { }
+                    }
+                    ArtistProfile(artist.copy(name = detail.str("name")?.takeIf { it.isNotBlank() } ?: artist.name,
+                        avatar = safeCover(detail.str("img1v1Url")) ?: safeCover(detail.str("picUrl")) ?: artist.avatar), bio,
+                        detail.arr("alias").orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank) }.take(8),
+                        detail.long("musicSize")?.takeIf { it >= 0 }, detail.long("albumSize")?.takeIf { it >= 0 })
+                } else {
+                    val param = buildJsonObject { put("sort", 5); put("singermid", artist.id); put("sin", 0); put("num", 1) }
+                    val root = http.parseObject(http.postJson(QQ, qqBody("music.web_singer_info_svr", "get_singer_detail_info", param), "https://y.qq.com/"))
+                    val response = root.obj("req") ?: error("歌手资料返回不完整")
+                    require(response.long("code") == 0L) { "歌手资料暂不可用" }
+                    val data = response.obj("data") ?: error("歌手资料返回不完整")
+                    val detail = data.obj("singer_info") ?: error("歌手资料缺少身份")
+                    require(detail.str("mid") == artist.id) { "歌手资料身份不一致" }
+                    ArtistProfile(artist.copy(name = detail.str("name")?.takeIf { it.isNotBlank() } ?: artist.name,
+                        avatar = "https://y.gtimg.cn/music/photo_new/T001R500x500M000${artist.id}.jpg"),
+                        cleanBiography(data.str("singer_brief")), listOfNotNull(detail.str("other_name")?.takeIf(String::isNotBlank)),
+                        data.long("total_song")?.takeIf { it >= 0 }, data.long("total_album")?.takeIf { it >= 0 })
+                }
+            }
+            synchronized(profiles) {
+                profiles[key] = result to platformNowMs()
+                while (profiles.size > 32) profiles.remove(profiles.keys.first())
+            }
+            result
+        }
+    }
 
     suspend fun resolve(song: Song): ArtistResolution = withTimeout(12_000) {
         val ref = OnlineTrackRef.parse(song.path)
@@ -104,6 +154,9 @@ class OnlineArtistService(private val http: SearchHttp = SearchHttp()) {
         }
     }
     companion object {
+        internal fun cleanBiography(value: String?): String = value.orEmpty().replace(Regex("<[^>]*>"), " ")
+            .replace("&nbsp;", " ").replace("&amp;", "&").replace("&quot;", 34.toChar().toString())
+            .replace(Regex("[ \t]+"), " ").trim().take(8_000)
         private const val QQ = "https://u.y.qq.com/cgi-bin/musicu.fcg"
         fun validArtist(a: OnlineArtistRef) = a.name.isNotBlank() && when(a.platform) {
             "wy" -> a.id.toLongOrNull()?.let { it > 0 } == true

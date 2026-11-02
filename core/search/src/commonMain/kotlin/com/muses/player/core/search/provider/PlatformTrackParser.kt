@@ -49,7 +49,9 @@ private fun artistRefsJson(platform: String, entries: kotlinx.serialization.json
     val refs = entries.orEmpty().mapNotNull { value ->
         val obj = value as? JsonObject ?: return@mapNotNull null
         val id = obj.str(if (platform == "tx") "mid" else "id") ?: return@mapNotNull null
-        val ref = com.muses.player.core.model.online.OnlineArtistRef(platform, id, obj.str("name").orEmpty())
+        val avatar = if (platform == "tx" && id.all { it.isLetterOrDigit() }) "https://y.gtimg.cn/music/photo_new/T001R500x500M000$id.jpg"
+            else (obj.str("img1v1Url") ?: obj.str("picUrl"))?.replace("http://", "https://")?.takeIf { it.startsWith("https://") }
+        val ref = com.muses.player.core.model.online.OnlineArtistRef(platform, id, obj.str("name").orEmpty(), avatar)
         ref.takeIf(com.muses.player.core.search.OnlineArtistService::validArtist)
     }
     return kotlinx.serialization.json.Json.encodeToString(refs)

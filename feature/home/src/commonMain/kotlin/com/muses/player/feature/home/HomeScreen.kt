@@ -244,7 +244,7 @@ fun HomeCollectionScreen(
                                     chart = chartItem,
                                     width = cardWidth,
                                     fallbackCover = chartCovers["${chartItem.platform}:${chartItem.chartId}"],
-                                    onCoverMissing = { failed -> viewModel.ensureChartCover(chartItem, failed) },
+                                    onCoverMissing = { viewModel.ensureChartCover(chartItem) },
                                     onClick = {
                                         onOpenChart(chartItem.platform, chartItem.chartId, chartItem.name)
                                     },
@@ -340,9 +340,9 @@ fun HomeCollectionScreen(
 }
 
 @Composable
-private fun ChartCard(chart: OnlineChart, width: Dp, fallbackCover: String?, onCoverMissing: (Boolean) -> Unit, onClick: () -> Unit) {
+private fun ChartCard(chart: OnlineChart, width: Dp, fallbackCover: String?, onCoverMissing: () -> Unit, onClick: () -> Unit) {
     val scheme = MiuixTheme.colorScheme
-    LaunchedEffect(chart.platform, chart.chartId, chart.coverUrl) { if (chart.coverUrl.isNullOrBlank()) onCoverMissing(false) }
+    LaunchedEffect(chart.platform, chart.chartId) { onCoverMissing() }
     Column(modifier = Modifier.width(width).clickable(onClick = onClick)) {
         Box(
             modifier = Modifier
@@ -353,9 +353,8 @@ private fun ChartCard(chart: OnlineChart, width: Dp, fallbackCover: String?, onC
             contentAlignment = Alignment.Center,
         ) {
             Icon(TablerIcons.MusicNote, contentDescription = null, tint = scheme.onSurfaceVariantSummary, modifier = Modifier.size(30.dp))
-            AsyncImage(model = fallbackCover ?: chart.coverUrl, contentDescription = null,
-                contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
-                onError = { onCoverMissing(true) })
+            AsyncImage(model = fallbackCover, contentDescription = null,
+                contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
         }
         Spacer(Modifier.height(5.dp))
         Text(chart.name, fontSize = 13.sp, color = scheme.onSurface, maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis, marqueeEnabled = false)

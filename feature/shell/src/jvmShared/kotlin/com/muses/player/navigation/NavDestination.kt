@@ -44,7 +44,7 @@ enum class NavDestination(
         Albums -> key == MusesRoute.Albums || key is MusesRoute.AlbumDetail
         Artists -> key == MusesRoute.Artists || key is MusesRoute.ArtistDetail
         Scrape -> key == MusesRoute.Scrape || key is MusesRoute.ScrapeReview
-        Mine -> key == MusesRoute.Mine || key == MusesRoute.Settings ||
+        Mine -> key == MusesRoute.Mine || key == MusesRoute.Settings || key == MusesRoute.AppUpdate ||
             key == MusesRoute.LocalLibrary || key == MusesRoute.Albums || key == MusesRoute.Artists ||
             key is MusesRoute.AlbumDetail || key is MusesRoute.ArtistDetail ||
             key == MusesRoute.Downloads ||

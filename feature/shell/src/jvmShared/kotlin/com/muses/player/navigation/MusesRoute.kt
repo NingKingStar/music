@@ -116,6 +116,9 @@ sealed interface MusesRoute : NavKey {
     data object Settings : MusesRoute
 
     @Serializable
+    data object AppUpdate : MusesRoute
+
+    @Serializable
     data object Statistics : MusesRoute
 
     @Serializable
