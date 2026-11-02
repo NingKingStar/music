@@ -4,7 +4,6 @@ import com.muses.player.core.search.performanceLabel
 import com.muses.player.core.search.qualityLabel
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -39,13 +38,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
 import com.muses.player.core.ai.AiRecommendedTrack
 import com.muses.player.core.search.OnlineChart
 import com.muses.player.core.ui.components.MusesButton
@@ -97,6 +96,7 @@ fun HomeCollectionScreen(
     val currentSongId = LocalSongMarqueeState.current.songId
     val scheme = MiuixTheme.colorScheme
     val chart = state.chart
+    val chartCovers by viewModel.chartCovers.collectAsState()
     val recommend = state.recommend
     val platformNames = chart.platformNames
     var showPlatformPopup by remember { mutableStateOf(false) }
@@ -243,6 +243,8 @@ fun HomeCollectionScreen(
                                 ChartCard(
                                     chart = chartItem,
                                     width = cardWidth,
+                                    fallbackCover = chartCovers["${chartItem.platform}:${chartItem.chartId}"],
+                                    onCoverMissing = { failed -> viewModel.ensureChartCover(chartItem, failed) },
                                     onClick = {
                                         onOpenChart(chartItem.platform, chartItem.chartId, chartItem.name)
                                     },
@@ -337,58 +339,33 @@ fun HomeCollectionScreen(
     }
 }
 
-private val ChartColors = listOf(
-    listOf(Color(0xFFE83967), Color(0xFFFF918B)),
-    listOf(Color(0xFF0ACB83), Color(0xFF73E8AA)),
-    listOf(Color(0xFF5379A3), Color(0xFF89A6C3)),
-    listOf(Color(0xFF5249CD), Color(0xFFAA80F7)),
-    listOf(Color(0xFF21B6DD), Color(0xFF7BD9F5)),
-    listOf(Color(0xFF48BD4B), Color(0xFFBCE5D6)),
-)
-
 @Composable
-private fun ChartCard(chart: OnlineChart, width: Dp, onClick: () -> Unit) {
+private fun ChartCard(chart: OnlineChart, width: Dp, fallbackCover: String?, onCoverMissing: (Boolean) -> Unit, onClick: () -> Unit) {
     val scheme = MiuixTheme.colorScheme
-    val colors = ChartColors[(chart.chartId.hashCode() and Int.MAX_VALUE) % ChartColors.size]
+    LaunchedEffect(chart.platform, chart.chartId, chart.coverUrl) { if (chart.coverUrl.isNullOrBlank()) onCoverMissing(false) }
     Column(modifier = Modifier.width(width).clickable(onClick = onClick)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1f)
                 .clip(RoundedCornerShape(14.dp))
-                .background(Brush.linearGradient(colors)),
+                .background(scheme.surfaceVariant),
             contentAlignment = Alignment.Center,
         ) {
-            Canvas(Modifier.fillMaxSize()) {
-                val shape = Path().apply {
-                    moveTo(0f, size.height * 0.62f)
-                    lineTo(size.width * 0.35f, size.height * 0.26f)
-                    quadraticTo(size.width * 0.5f, size.height * 0.13f, size.width * 0.65f, size.height * 0.3f)
-                    lineTo(size.width, size.height * 0.68f)
-                    lineTo(size.width, size.height)
-                    lineTo(0f, size.height)
-                    close()
-                }
-                drawPath(shape, Color.White.copy(alpha = 0.13f))
-            }
-            Text(
-                text = chart.name,
-                color = Color.White,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(8.dp),
-            )
+            Icon(TablerIcons.MusicNote, contentDescription = null, tint = scheme.onSurfaceVariantSummary, modifier = Modifier.size(30.dp))
+            AsyncImage(model = fallbackCover ?: chart.coverUrl, contentDescription = null,
+                contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize(),
+                onError = { onCoverMissing(true) })
         }
         Spacer(Modifier.height(5.dp))
-        Text(chart.name, fontSize = 13.sp, color = scheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(
+        Text(chart.name, fontSize = 13.sp, color = scheme.onSurface, maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis, marqueeEnabled = false)
+        if (!chart.updateInfo.isNullOrBlank()) Text(
             text = chart.updateInfo.orEmpty(),
             fontSize = 11.sp,
             color = scheme.onSurfaceVariantSummary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            marqueeEnabled = false,
         )
     }
 }

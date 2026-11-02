@@ -100,7 +100,7 @@ fun LxSourceFormScreen(
         isAdding = false
         result.fold(
             onSuccess = {
-                MusesSnackbar.show("保存成功")
+                MusesSnackbar.show(if (sourceId == null) "已添加并设为优先音源" else "保存成功")
                 onSaved()
             },
             onFailure = { MusesSnackbar.show(it.message ?: "保存 LX 音源失败。") },

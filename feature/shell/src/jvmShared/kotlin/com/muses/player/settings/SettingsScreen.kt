@@ -66,15 +66,10 @@ fun SettingsScreen(
     val actions = rememberShellPlatformActions()
     val versionProvider = koinInject<AppVersionProvider>()
     val settingsRepository = koinInject<SettingsRepository>()
-    val builtinUpdater = koinInject<com.muses.player.core.lxsdk.store.BuiltinLxSourceUpdater>()
-    val builtinLxEnabled by settingsRepository.builtinLxSourcesEnabled.collectAsState(initial = true)
-    val builtinUpdateStatus by builtinUpdater.status.collectAsState()
     val coroutineScope = rememberCoroutineScope()
     val lyricsEnabled by settingsRepository.miniPlayerLyricsEnabled.collectAsState(initial = false)
     val notificationLyricsEnabled by settingsRepository.notificationLyricsEnabled.collectAsState(initial = false)
     val coverContentColorEnabled by settingsRepository.coverContentColorEnabled.collectAsState(initial = true)
-    val lyricTranslationEnabled by settingsRepository.lyricTranslationEnabled.collectAsState(initial = true)
-    val lyricRomanizationEnabled by settingsRepository.lyricRomanizationEnabled.collectAsState(initial = true)
 
 
     // U15：设置页共享组件（音源区块已移除，独立音源页承载）；「关于/反馈」扩展区为
@@ -107,30 +102,8 @@ fun SettingsScreen(
                         checked = coverContentColorEnabled,
                         onCheckedChange = { coroutineScope.launch { settingsRepository.setCoverContentColorEnabled(it) } },
                     )
-                    SwitchPreference(
-                        title = "显示歌词翻译",
-                        checked = lyricTranslationEnabled,
-                        onCheckedChange = { coroutineScope.launch { settingsRepository.setLyricTranslationEnabled(it) } },
-                    )
-                    SwitchPreference(
-                        title = "显示歌词注音",
-                        summary = "显示行音译与逐字注音",
-                        checked = lyricRomanizationEnabled,
-                        onCheckedChange = { coroutineScope.launch { settingsRepository.setLyricRomanizationEnabled(it) } },
-                    )
                 }
 
-                // ---- 内置音源 ----
-                SettingsBlockTitle("音源")
-                Card(modifier = Modifier.padding(horizontal = 12.dp)) {
-                    PreferredLxSourcePreference()
-                    SwitchPreference(
-                        title = "使用内置 LX 音源",
-                        summary = if (builtinLxEnabled) builtinUpdateStatus else "关闭后仅使用自行导入的 LX 音源",
-                        checked = builtinLxEnabled,
-                        onCheckedChange = { coroutineScope.launch { builtinUpdater.setEnabled(it) } },
-                    )
-                }
                 // ---- 下载与 AI 推荐 ----
                 com.muses.player.download.DownloadPreferencesSection()
                 SettingsBlockTitle("数据同步")
@@ -143,7 +116,7 @@ fun SettingsScreen(
                 }
                 AiRecommendSettingSection(onOpenAiSettings = onOpenAiSettings)
 
-                // ---- 应用更新（Windows 应用内更新卡片；安卓空实现，走共享外链检查项） ----
+                // ---- 应用更新（两端使用各自下载安装流程，隐藏重复外链检查入口） ----
                 if (supportsInAppUpdate) {
                     InAppUpdateSection(
                         versionName = versionProvider.versionName,

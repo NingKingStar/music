@@ -14,6 +14,8 @@ import org.koin.dsl.module
  */
 val homeCoreModule = module {
     single { OnlineChartCacheStore(get<DataStore<Preferences>>()) }
+    single { ArtistPageCache(get<DataStore<Preferences>>()) }
+    viewModel { params -> OnlineArtistViewModel(get(), get(), get(), get(), params.get<com.muses.player.core.model.Song>()) }
     single { FeaturedPlaylistCacheStore(get<DataStore<Preferences>>()) }
     viewModel {
         val port: PlaybackPort = get()

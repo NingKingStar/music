@@ -42,6 +42,21 @@ class SongCollectionsTest {
         finally { job.cancelAndJoin(); root.deleteRecursively() }
     }
 
+    @Test fun `补全摘要跨实例保存且重试仅重置本轮计数`() = verify { lists, _, _, _, data ->
+        val id = lists.createImported("补全摘要", listOf(song))
+        lists.metadataStarted(id, 1)
+        lists.metadataStarted(id, 5)
+        lists.metadataProgress(id, 1, 1, done = true)
+        val restored = UserPlaylistStore(data).snapshot().single()
+        assertEquals(1, restored.metadataRepairInitialMissing)
+        assertEquals(1, restored.metadataRepairVersion)
+        lists.retryMetadata(id)
+        val retried = UserPlaylistStore(data).snapshot().single()
+        assertEquals(-1, retried.metadataRepairInitialMissing)
+        assertEquals(0, retried.metadataRepairCursor)
+        assertEquals(restored.tracks, retried.tracks)
+    }
+
     @Test fun `导入歌单完整保存顺序且失败不留下半成品`() = verify { lists, _, _, _, data ->
         val another = song.copy(id = "online:two", title = "另一首")
         val id = lists.createImported("导入歌单", listOf(song, another, song))

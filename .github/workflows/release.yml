@@ -83,6 +83,7 @@ jobs:
             "$BT/zipalign" -c -P 16 4 "$APK"
           done
           sha256sum muses-v*.apk > SHA256SUMS.txt
+          python3 scripts/generate-update-manifest.py --version '${{ steps.version.outputs.version }}' --code '${{ steps.version.outputs.code }}' --aapt2 "$BT/aapt2" muses-v*.apk
 
       # 说明由安卓 job 生成（有 checkout 可读 changelog）；MSI 文件名是确定性的
       - name: Read changelog
@@ -109,6 +110,7 @@ jobs:
             muses-v${{ steps.version.outputs.version }}-mi.apk
             release_body.md
             SHA256SUMS.txt
+            update.json
 
   # Windows 桌面端 MSI（Compose Multiplatform / jpackage），与安卓并行
   build-windows:
@@ -259,6 +261,7 @@ jobs:
           files: |
             release-assets/**/*.apk
             release-assets/**/SHA256SUMS.txt
+            release-assets/**/update.json
 
   release-windows:
     needs: [build-windows, release]

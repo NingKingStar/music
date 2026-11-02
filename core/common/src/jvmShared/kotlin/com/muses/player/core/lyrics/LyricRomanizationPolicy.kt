@@ -28,8 +28,10 @@ internal object LyricRomanizationPolicy {
         val original = Result(base, currentSource)
         if (priority(donorSource) == 0) return original
         val groups = LyricTranslationPolicy.align(base, donor) ?: return original
-        val replacements = groups.filter { it.base.size == 1 && it.donor.size == 1 }
-            .associate { it.base.single() to donor.lines[it.donor.single()] }
+        val replacements = groups.filter { it.base.size == 1 && it.donor.all { index -> valid(donor.lines[index].text, donor.lines[index].romanization) } }
+            .associate { group -> group.base.single() to if (group.donor.size == 1) donor.lines[group.donor.single()] else
+                donor.lines[group.donor.first()].copy(romanization = group.donor.joinToString(" ") { donor.lines[it].romanization!!.trim() },
+                    romanizationSyllables = emptyList()) }
         val replace = priority(donorSource) > priority(currentSource) && coverage(donor) >= coverage(base)
         var changed = false
         val lines = base.lines.mapIndexed { index, line ->

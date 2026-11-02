@@ -10,6 +10,7 @@ import com.muses.player.core.model.online.OnlineTrackRef
  * 各平台字段差异大（songmid/hash/copyrightId…），本模型做归一；
  * [musicInfoJson] 是**给音源脚本用的原始字段包**，直接进 [OnlineTrackRef.musicInfoJson]。
  */
+@kotlinx.serialization.Serializable
 data class OnlineSearchResult(
     /** 平台 key（与洛雪源一致：kw/kg/tx/wy/mg） */
     val platform: String,

@@ -274,6 +274,7 @@ class SourcesViewModel constructor(
             if (source.type == SourceType.ONLINE) {
                 lxScriptStore.delete(source.id)
                 lxScriptRepository.unregister(source.id)
+                com.muses.player.core.lxsdk.LxSourcePriorityManager(lxScriptStore, lxScriptRepository, settingsRepository).repair()
             }
             // 先取待删歌曲 ids，用于清理播放快照/最近播放/播放队列
             val songIdsToRemove = try {

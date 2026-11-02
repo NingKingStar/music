@@ -70,6 +70,10 @@ fun <T : ScoreableHit> pickBest(items: List<T>, query: OnlineLyricsQuery): T? {
     return items.filter { matchesSong(it, query) }.maxByOrNull { scoreSearchHit(it, query) }
 }
 
+/** 只扩大同曲候选数量，不降低歌手、版本与时长的匹配约束。 */
+fun <T : ScoreableHit> pickCandidates(items: List<T>, query: OnlineLyricsQuery): List<T> =
+    items.filter { matchesSong(it, query) }.sortedByDescending { scoreSearchHit(it, query) }.take(3)
+
 /** lrclist → 标准 LRC（util.ts linesToLrc） */
 fun linesToLrc(lines: List<LrcLine>): String {
     val out = mutableListOf<String>()

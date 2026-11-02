@@ -66,6 +66,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun LxScriptsScreen(
     onBack: () -> Unit,
+    onEditSource: (String) -> Unit = {},
     viewModel: LxScriptsViewModel = koinViewModel(),
 ) {
     val items by viewModel.items.collectAsState()
@@ -73,6 +74,17 @@ fun LxScriptsScreen(
     val pendingSource by viewModel.pendingSource.collectAsState()
     val validation by viewModel.importValidation.collectAsState()
     val urlImportStatus by viewModel.urlImportStatus.collectAsState()
+    val preferred by viewModel.preferredSource.collectAsState("")
+    val order by viewModel.sourceOrder.collectAsState(emptyList())
+    val builtinEnabled by viewModel.builtinEnabled.collectAsState(true)
+    val notice by viewModel.notice.collectAsState()
+    LaunchedEffect(notice) { notice?.let { MusesSnackbar.show(it); viewModel.clearNotice() } }
+    val orderedItems = items.sortedBy { order.indexOf(it.id).takeIf { i -> i >= 0 } ?: Int.MAX_VALUE }
+    val preferredName = when (preferred) {
+        "" -> "自动选择"
+        com.muses.player.core.lxsdk.LxSourcePreference.BUILTIN -> "内置音源"
+        else -> items.firstOrNull { it.id == preferred }?.name ?: "自动回退"
+    }
 
     var showImportSheet by remember { mutableStateOf(false) }
     var showImportOptions by remember { mutableStateOf(false) }
@@ -82,6 +94,7 @@ fun LxScriptsScreen(
     var urlError by remember { mutableStateOf<String?>(null) }
     var pendingDeleteId by remember { mutableStateOf<String?>(null) }
     var actionSheetFor by remember { mutableStateOf<LxScriptItem?>(null) }
+    var showPrioritySettings by remember { mutableStateOf(false) }
     val filePicker = rememberLxScriptFilePicker { result ->
         result.fold(onSuccess = { viewModel.stageImport(it); showImportSheet = true }, onFailure = {
             MusesSnackbar.show(it.message ?: "读取脚本失败，请确认文件已下载到本地且可读取。")
@@ -110,7 +123,7 @@ fun LxScriptsScreen(
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             MusesTopBar(
-                title = "在线音源脚本",
+                title = "在线音源",
                 onBack = onBack,
                 actions = {
                     MusesIconButton(
@@ -129,6 +142,10 @@ fun LxScriptsScreen(
             modifier = Modifier.padding(padding),
         ) {
         Column(modifier = Modifier.fillMaxSize()) {
+            Card(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth()) {
+                top.yukonga.miuix.kmp.preference.ArrowPreference(title = "优先使用：$preferredName",
+                    summary = "优先失败后按备用顺序尝试 · 点此调整", onClick = { showPrioritySettings = true })
+            }
             if (loading && items.isEmpty()) {
                 Column(
                     modifier = Modifier.fillMaxSize(),
@@ -163,9 +180,10 @@ fun LxScriptsScreen(
                             modifier = Modifier.padding(bottom = 4.dp),
                         )
                     }
-                    items(items, key = { it.id }) { item ->
+                    items(orderedItems, key = { it.id }) { item ->
                         LxScriptCard(
                             item = item,
+                            priorityLabel = if (item.id == preferred && item.enabled) "优先使用" else "备用 ${orderedItems.indexOf(item) + 1}",
                             onToggle = { enabled -> viewModel.setEnabled(item.id, enabled) },
                             onMore = { actionSheetFor = item },
                         )
@@ -222,6 +240,35 @@ fun LxScriptsScreen(
         )
     }
 
+    if (showPrioritySettings) MusesBottomSheet(onDismiss = { showPrioritySettings = false }, title = "音源优先级") {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("当前优先：$preferredName", fontWeight = FontWeight.Medium, marqueeEnabled = false)
+            Text("优先失败后，在相同音质下按备用顺序尝试。调整不会打断当前播放。",
+                fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, marqueeEnabled = false)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("启用内置音源", Modifier.weight(1f), marqueeEnabled = false)
+                Switch(checked = builtinEnabled, onCheckedChange = viewModel::setBuiltinEnabled)
+            }
+            top.yukonga.miuix.kmp.basic.BasicComponent(title = "自动选择" + if (preferred.isBlank()) "（当前）" else "",
+                onClick = { viewModel.choosePreferred("") })
+            if (builtinEnabled) top.yukonga.miuix.kmp.basic.BasicComponent(title = "内置音源优先" +
+                if (preferred == com.muses.player.core.lxsdk.LxSourcePreference.BUILTIN) "（当前）" else "",
+                onClick = { viewModel.choosePreferred(com.muses.player.core.lxsdk.LxSourcePreference.BUILTIN) })
+            orderedItems.forEach { item ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    top.yukonga.miuix.kmp.basic.BasicComponent(modifier = Modifier.weight(1f), title = item.name,
+                        summary = if (item.id == preferred) "当前优先" else if (item.enabled) "备用 ${orderedItems.indexOf(item) + 1}" else "已禁用 · 点击启用并设为优先",
+                        onClick = { viewModel.choosePreferred(item.id) })
+                    MusesIconButton(onClick = { viewModel.moveSource(item.id, -1) }, imageVector = TablerIcons.ChevronUp,
+                        contentDescription = "上移 ${item.name}", enabled = orderedItems.firstOrNull()?.id != item.id, size = MusesIconButtonSize.SM)
+                    MusesIconButton(onClick = { viewModel.moveSource(item.id, 1) }, imageVector = TablerIcons.ChevronDown,
+                        contentDescription = "下移 ${item.name}", enabled = orderedItems.lastOrNull()?.id != item.id, size = MusesIconButtonSize.SM)
+                }
+            }
+        }
+    }
+
     // 单项操作
     actionSheetFor?.let { item ->
         MusesActionsSheet(
@@ -229,6 +276,10 @@ fun LxScriptsScreen(
             onDismiss = { actionSheetFor = null },
             label = item.name,
             items = listOf(
+                MusesActionItem(label = if (item.id == preferred) "当前优先音源" else "设为优先音源", onClick = { viewModel.choosePreferred(item.id); actionSheetFor = null }),
+                MusesActionItem(label = "编辑音源", onClick = { onEditSource(item.id); actionSheetFor = null }),
+                MusesActionItem(label = "备用顺序上移", onClick = { viewModel.moveSource(item.id, -1); actionSheetFor = null }),
+                MusesActionItem(label = "备用顺序下移", onClick = { viewModel.moveSource(item.id, 1); actionSheetFor = null }),
                 MusesActionItem(
                     label = if (item.enabled) "禁用" else "启用",
                     onClick = {
@@ -268,6 +319,7 @@ fun LxScriptsScreen(
 @Composable
 private fun LxScriptCard(
     item: LxScriptItem,
+    priorityLabel: String,
     onToggle: (Boolean) -> Unit,
     onMore: () -> Unit,
 ) {
@@ -275,6 +327,7 @@ private fun LxScriptCard(
         Column(modifier = Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
+                    Text(priorityLabel, fontSize = 11.sp, color = MiuixTheme.colorScheme.primary, marqueeEnabled = false)
                     Text(
                         text = item.name,
                         fontSize = 16.sp,

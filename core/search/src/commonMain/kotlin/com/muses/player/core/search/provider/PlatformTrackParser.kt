@@ -16,6 +16,7 @@ internal fun parseWyTrack(item: JsonObject): OnlineSearchResult? {
         album?.str("picUrl")?.takeIf { it.startsWith("https://") || it.startsWith("http://") },
         buildMusicInfo("id" to id, name = title, singer = artist, album = album?.str("name"), durationSec = duration?.div(1000),
             extra = buildMap {
+                put("artistRefs", artistRefsJson("wy", item.arr("ar") ?: item.arr("artists")))
                 album?.str("id")?.let { put("albumId", it) }
                 item.long("originCoverType")?.let { put("originCoverType", it.toString()) }
                 wyCatalogQualityLabel(item)?.let { put("catalogQuality", it) }
@@ -37,8 +38,19 @@ internal fun parseTxTrack(raw: JsonObject): OnlineSearchResult? {
             name = title, singer = artist, album = album?.str("name"), durationSec = seconds,
             extra = buildMap {
                 putAll(catalogMetadata("tx", item))
+                put("artistRefs", artistRefsJson("tx", item.arr("singer")))
                 album?.str("id")?.let { put("albumId", it) }
                 album?.str("mid")?.let { put("albumMid", it) }
                 item.str("isrc")?.takeIf { it.isNotBlank() }?.let { put("isrc", it) }
             }))
+}
+
+private fun artistRefsJson(platform: String, entries: kotlinx.serialization.json.JsonArray?): String {
+    val refs = entries.orEmpty().mapNotNull { value ->
+        val obj = value as? JsonObject ?: return@mapNotNull null
+        val id = obj.str(if (platform == "tx") "mid" else "id") ?: return@mapNotNull null
+        val ref = com.muses.player.core.model.online.OnlineArtistRef(platform, id, obj.str("name").orEmpty())
+        ref.takeIf(com.muses.player.core.search.OnlineArtistService::validArtist)
+    }
+    return kotlinx.serialization.json.Json.encodeToString(refs)
 }

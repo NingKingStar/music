@@ -26,6 +26,7 @@ data class UserPlaylist(
     val metadataRepairCursor: Int = 0,
     val metadataRepairPass: Int = 0,
     val metadataRepairRequested: Boolean = false,
+    val metadataRepairInitialMissing: Int = -1,
 ) {
     fun contains(song: Song): Boolean = tracks.any { sameSong(it.toSong(), song) }
     fun adding(song: Song): UserPlaylist =
@@ -107,6 +108,10 @@ class UserPlaylistStore(private val dataStore: DataStore<Preferences>) {
             metadataRepairVersion = if (done) 1 else 0, metadataRepairRequested = !done && it.metadataRepairRequested) else it }
     }
 
+    suspend fun metadataStarted(id: String, missing: Int) = update { current -> current.map {
+        if (it.id == id && it.metadataRepairInitialMissing < 0) it.copy(metadataRepairInitialMissing = missing) else it
+    } }
+
     suspend fun retryMetadata(id: String) = update { current -> current.map { if (it.id == id)
-        it.copy(metadataRepairCursor = 0, metadataRepairPass = 0, metadataRepairVersion = 0, metadataRepairRequested = true) else it } }
+        it.copy(metadataRepairCursor = 0, metadataRepairPass = 0, metadataRepairVersion = 0, metadataRepairRequested = true, metadataRepairInitialMissing = -1) else it } }
 }

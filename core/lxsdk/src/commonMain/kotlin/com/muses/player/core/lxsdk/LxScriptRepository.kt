@@ -93,6 +93,7 @@ class LxScriptRepository(
      */
     private val storedScriptsProvider: (suspend () -> List<Pair<String, String>>)? = null,
     private val preferredScriptIdsProvider: suspend () -> Set<String> = { emptySet() },
+    private val sourceOrderProvider: suspend () -> List<String> = { emptyList() },
 ) {
 
     private val mutex = Mutex()
@@ -227,7 +228,7 @@ class LxScriptRepository(
     /** 偏好指纹：首选选择 + 脚本集合版本，供短期直链复用做键。 */
     suspend fun preferenceFingerprint(): String {
         val ids = preferredScriptIdsProvider().sorted().joinToString(",")
-        return "${generationState.value}:$ids"
+        return "${generationState.value}:$ids:${sourceOrderProvider().joinToString(",")}"
     }
 
     /**
@@ -289,10 +290,11 @@ class LxScriptRepository(
         exactQuality: Boolean = false,
     ): LxMusicUrl {
         ensureSynced()
-        val candidates = mutex.withLock { scripts.toList() }
+        val order = sourceOrderProvider()
+        val candidates = mutex.withLock { scripts.sortedBy { order.indexOf(it.scriptId).takeIf { i -> i >= 0 } ?: Int.MAX_VALUE } }
         val preferredIds = preferredScriptIdsProvider()
         val (preferred, others) = candidates.partition { it.scriptId in preferredIds }
-        if (preferred.isEmpty()) {
+        if (preferred.isEmpty() && order.isEmpty()) {
             return resolveFromCandidates(candidates, platform, musicInfoJson, quality, acceptUrl, exactQuality)
         }
         val requested = quality ?: LxQuality.DEFAULT
@@ -300,13 +302,16 @@ class LxScriptRepository(
         val failures = mutableListOf<String>()
         // 保持音质优先级：同档位先试首选脚本，再试后备；都失败后才降档。
         for (effective in qualities) {
-            for ((index, group) in listOf(preferred, others).withIndex()) {
+            val groups = if (order.isEmpty()) listOf(preferred, others) else listOf(preferred) + others.map { listOf(it) }
+            for ((index, group) in groups.withIndex()) {
                 if (group.isEmpty()) continue
                 try {
                     val result = if (index == 0) {
                         withTimeoutOrNull(minOf(requestTimeoutMs, 6_000L)) {
                             resolveFromCandidates(group, platform, musicInfoJson, effective, acceptUrl, true)
                         }
+                    } else if (order.isNotEmpty()) withTimeoutOrNull(minOf(requestTimeoutMs, 2_000L)) {
+                        resolveFromCandidates(group, platform, musicInfoJson, effective, acceptUrl, true)
                     } else resolveFromCandidates(group, platform, musicInfoJson, effective, acceptUrl, true)
                     if (result != null) return result
                 } catch (e: CancellationException) { throw e }
@@ -451,7 +456,9 @@ class LxScriptRepository(
     ): T {
         ensureSynced()
         val preferredIds = preferredScriptIdsProvider()
-        val candidates = mutex.withLock { scripts.sortedBy { if (it.scriptId in preferredIds) 0 else 1 } }
+        val order = sourceOrderProvider()
+        val candidates = mutex.withLock { scripts.sortedWith(compareBy<LoadedLxScript> { if (it.scriptId in preferredIds) 0 else 1 }
+            .thenBy { order.indexOf(it.scriptId).takeIf { i -> i >= 0 } ?: Int.MAX_VALUE }) }
         if (candidates.isEmpty()) {
             throw LxResolveException("未导入任何音源脚本。")
         }

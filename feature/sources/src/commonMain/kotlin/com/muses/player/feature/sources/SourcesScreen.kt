@@ -107,6 +107,14 @@ fun SourcesScreen(
                 onRefresh = viewModel::refresh,
                 modifier = Modifier.padding(padding),
             ) {
+                Column(Modifier.fillMaxSize()) {
+                Card(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth().clickable(onClick = onOpenLxScripts)) {
+                    Column(Modifier.padding(16.dp)) {
+                        Text("在线音源管理", fontWeight = FontWeight.Medium)
+                        Text("导入 · 优先音源 · 备用顺序 · 内置音源", fontSize = 12.sp, color = scheme.onSurfaceVariantSummary)
+                    }
+                }
+                Box(Modifier.weight(1f)) {
                 if (sources.isEmpty()) {
                     MusesRefreshablePlaceholder {
                         MusesEmpty(
@@ -121,6 +129,8 @@ fun SourcesScreen(
                         modifier = Modifier.fillMaxSize(),
                         onMoreActions = { sourceActionsTarget = it },
                     )
+                }
+                }
                 }
             }
         }

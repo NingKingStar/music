@@ -218,3 +218,9 @@ actual fun InAppUpdateSection(
         }
     }
 }
+
+@Composable
+actual fun AppUpdateHost() {}
+
+@Composable
+actual fun appUpdateHint(): String? = null

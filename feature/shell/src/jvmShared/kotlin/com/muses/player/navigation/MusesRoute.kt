@@ -69,6 +69,9 @@ sealed interface MusesRoute : NavKey {
     @Serializable
     data class ArtistDetail(val artistId: String) : MusesRoute
 
+    @Serializable
+    data class OnlineArtist(val songId: String, val sourceId: String, val path: String, val title: String, val artist: String?) : MusesRoute
+
     // ---- 次菜单（工具）----
     @Serializable
     data object Scrape : MusesRoute

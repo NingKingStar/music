@@ -31,6 +31,7 @@ import com.muses.player.core.ui.icons.TablerIcons
 import top.yukonga.miuix.kmp.squircle.squircleClip
 
 val LocalFindOtherSongVersions = androidx.compose.runtime.staticCompositionLocalOf<((String) -> Unit)?> { null }
+val LocalOpenSongArtist = androidx.compose.runtime.staticCompositionLocalOf<((com.muses.player.core.model.Song) -> Unit)?> { null }
 val LocalPlayerCoverFailure = androidx.compose.runtime.staticCompositionLocalOf<((String) -> Unit)?> { null }
 
 /**

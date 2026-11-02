@@ -16,6 +16,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.animation.*
+import androidx.compose.foundation.layout.Column
+import com.muses.player.core.ui.components.LibrarySearchField
+import com.muses.player.core.ui.components.SongListActions
+import com.muses.player.core.model.Song
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -53,6 +62,8 @@ fun ChartDetailScreen(
     chartName: String,
     onBack: () -> Unit,
     isPlaylist: Boolean = false,
+    onDownloadSongs: ((List<Song>) -> Unit)? = null,
+    downloadEnabled: Boolean = true,
     viewModel: ChartDetailViewModel = koinViewModel(
         parameters = { parametersOf(platform, chartId) },
     ),
@@ -62,9 +73,20 @@ fun ChartDetailScreen(
     val currentSongId = LocalSongMarqueeState.current.songId
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    val currentSongIndex = remember(currentSongId, state.songs) {
-        state.songs.indexOfFirst { it.toSong("online").id == currentSongId }
-    }
+    var query by rememberSaveable(platform, chartId) { mutableStateOf("") }
+    var searching by rememberSaveable(platform, chartId) { mutableStateOf(false) }
+    var more by remember { mutableStateOf(false) }
+    if (more) com.muses.player.core.ui.components.MusesActionsSheet(opened = true, onDismiss = { more = false },
+        label = chartName, items = listOf(com.muses.player.core.ui.components.MusesActionItem("随机播放") {
+            more = false; viewModel.shuffle()
+        }))
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    LaunchedEffect(searching) { if (!searching) { focus.clearFocus(); keyboard?.hide() } }
+    val visible = remember(state.songs, query) { state.songs.withIndex().filter {
+        query.isBlank() || it.value.name.contains(query.trim(), true) || it.value.artist.orEmpty().contains(query.trim(), true)
+    } }
+    val currentSongIndex = visible.indexOfFirst { it.value.toSong("online").id == currentSongId }
 
 
     Scaffold(
@@ -76,6 +98,8 @@ fun ChartDetailScreen(
                 title = chartName,
                 onBack = onBack,
                 actions = {
+                    MusesIconButton(onClick = { more = true }, imageVector = TablerIcons.MoreHorizontal,
+                        contentDescription = "榜单更多操作", enabled = state.songs.isNotEmpty())
                     if (isPlaylist) {
                         MusesIconButton(
                             onClick = viewModel::refresh,
@@ -87,26 +111,15 @@ fun ChartDetailScreen(
                 },
                 bottomContent = {
                     if (state.songs.isNotEmpty()) {
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Row(
-                                Modifier.clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
-                                    onClick = viewModel::shuffle,
-                                ),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                MusesIconButton(onClick = viewModel::shuffle) {
-                                    Icon(TablerIcons.Shuffle, contentDescription = "随机播放全部歌曲")
-                                }
-                                Text(
-                                    text = state.songs.size.toString(),
-                                    style = MiuixTheme.textStyles.body1,
-                                    color = scheme.onBackground,
-                                )
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                            SongListActions(count = visible.size, searching = searching, filtered = query.isNotBlank(),
+                                onPlay = { viewModel.playResults(visible.map { it.value }) },
+                                onSearch = { searching = !searching; if (!searching) query = "" },
+                                onDownload = onDownloadSongs?.let { action -> { action(visible.map { it.value.toSong("online") }) } },
+                                downloadEnabled = downloadEnabled && visible.isNotEmpty())
+                            AnimatedVisibility(searching, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                                LibrarySearchField(query, { query = it }, "搜索当前列表",
+                                    onCancel = { query = ""; searching = false }, autoFocus = true)
                             }
                         }
                     }
@@ -155,10 +168,14 @@ fun ChartDetailScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(SongListLayout.itemSpacing),
             ) {
+                if (visible.isEmpty()) item {
+                    Text("没有找到匹配歌曲", modifier = Modifier.padding(24.dp), color = scheme.onBackgroundVariant)
+                }
                 itemsIndexed(
-                    items = state.songs,
-                    key = { _, song -> song.toSong("online").id },
-                ) { index, song ->
+                    items = visible,
+                    key = { _, entry -> entry.value.toSong("online").id },
+                ) { index, entry ->
+                    val song = entry.value
                     val playableSong = song.toSong("online")
                     SongListItem(
                         isLiked = com.muses.player.core.ui.components.LocalFavoriteSongs.current.isLiked(playableSong),
@@ -173,7 +190,7 @@ fun ChartDetailScreen(
                         isCurrent = playableSong.id == currentSongId,
                         titleBadgeLabel = song.performanceLabel,
                         qualityBadgeLabel = song.qualityLabel,
-                        onClick = { viewModel.play(index) },
+                        onClick = { viewModel.playResults(visible.map { it.value }, index) },
                         trailingContent = { com.muses.player.core.ui.components.OnlineSongDownloadAction(playableSong) },
                     )
                 }

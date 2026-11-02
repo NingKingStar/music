@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.CancellationException
+import com.muses.player.core.lxsdk.LxSourcePriorityManager
 
 /** 脚本列表项（UI 展示用；合并持久化状态与运行态） */
 data class LxScriptItem(
@@ -73,6 +75,26 @@ class LxScriptsViewModel(
     private val sourceRepository: SourceRepository,
     private val settingsRepository: SettingsRepository,
 ) : ViewModel() {
+    private val priority = LxSourcePriorityManager(store, repository, settingsRepository)
+    val preferredSource = settingsRepository.preferredLxSource
+    val sourceOrder = settingsRepository.lxSourceOrder
+    val builtinEnabled = settingsRepository.builtinLxSourcesEnabled
+    val notice = MutableStateFlow<String?>(null)
+    fun clearNotice() { notice.value = null }
+    fun choosePreferred(id: String) = changePriority { priority.choose(id); notice.value = "已更新优先音源" }
+    fun moveSource(id: String, delta: Int) = changePriority { priority.move(id, delta) }
+    fun setBuiltinEnabled(enabled: Boolean) = changePriority {
+        settingsRepository.setBuiltinLxSourcesEnabled(enabled)
+        repository.refreshFromStore()
+        if (priority.repair()) notice.value = "优先音源已切换为可用备用音源"
+    }
+    private fun changePriority(block: suspend () -> Unit) {
+        viewModelScope.launch {
+            try { block(); refresh() }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { notice.value = e.message ?: "音源设置保存失败，请重试" }
+        }
+    }
 
     private val _items = MutableStateFlow<List<LxScriptItem>>(emptyList())
     val items: StateFlow<List<LxScriptItem>> = _items.asStateFlow()
@@ -116,6 +138,8 @@ class LxScriptsViewModel(
                     ),
                 )
                 refresh()
+                priority.choose(id)
+                notice.value = "已添加并设为优先音源"
                 _urlImportStatus.value = LxUrlImportStatus.Success
             } catch (e: Exception) {
                 _urlImportStatus.value = LxUrlImportStatus.Failure(e.message ?: "脚本校验失败。")
@@ -243,6 +267,7 @@ class LxScriptsViewModel(
                 )
                 clearStagedImport()
                 refresh()
+                priority.choose(id)
                 onComplete(Result.success(Unit))
             } catch (e: Exception) {
                 onComplete(Result.failure(e))
@@ -298,6 +323,7 @@ class LxScriptsViewModel(
                 } else {
                     repository.unregister(id)
                 }
+                if (priority.repair()) notice.value = "优先音源已切换为可用备用音源"
                 refresh()
             }
         }
@@ -308,6 +334,7 @@ class LxScriptsViewModel(
             store.delete(id)
             repository.unregister(id)
             sourceRepository.deleteById(id)
+            if (priority.repair()) notice.value = "优先音源已切换为可用备用音源"
             refresh()
         }
     }

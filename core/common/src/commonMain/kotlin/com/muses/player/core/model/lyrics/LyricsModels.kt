@@ -61,6 +61,13 @@ interface LyricsProvider {
     val id: OnlineLyricsSource
 
     suspend fun searchLyrics(query: OnlineLyricsQuery): OnlineLyricsProviderHit?
+
+    /** 原词立即交付，译文和读音可在同一有界请求内继续补全。 */
+    suspend fun searchProgressively(query: OnlineLyricsQuery, onHit: suspend (OnlineLyricsProviderHit) -> Unit): Boolean {
+        val hit = searchLyrics(query) ?: return false
+        onHit(hit)
+        return true
+    }
 }
 
 /** 匹配失败原因 */

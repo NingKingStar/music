@@ -45,22 +45,23 @@ private data class TxHit(
     override val title: String?,
     override val artist: String?,
     override val album: String?,
+    override val durationSec: Double? = null,
 ) : ScoreableHit
 
-private suspend fun searchTxHit(http: LyricsHttp, query: OnlineLyricsQuery): TxHit? {
+private suspend fun searchTxHits(http: LyricsHttp, query: OnlineLyricsQuery): List<TxHit> {
     val keyword = buildKeyword(query)
-    if (keyword.isEmpty()) return null
+    if (keyword.isEmpty()) return emptyList()
     val url = "https://c.y.qq.com/soso/fcgi-bin/search_for_qq_cp?g_tk=5381&uin=0&format=json" +
         "&inCharset=utf-8&outCharset=utf-8&notice=0&platform=h5&needNewCode=1" +
         "&w=${enc(keyword)}&zhidaqu=1&catZhida=1&t=0&flag=1&ie=utf-8&sem=1&aggr=0" +
         "&perpage=10&n=10&p=1&remoteplace=txt.mqq.all"
 
     val body = try {
-        http.getJson(url, TX_HEADERS) as? JsonObject ?: return null
+        http.getJson(url, TX_HEADERS) as? JsonObject ?: return emptyList()
     } catch (e: CancellationException) {
         throw e
     } catch (_: Exception) {
-        return null
+        return emptyList()
     }
     // song.list 双层/单层兼容（arrCompat：老对象包数组 / 新直接数组）
     val items = body.obj("data")?.obj("song")?.arrCompat("list").orEmpty()
@@ -74,11 +75,12 @@ private suspend fun searchTxHit(http: LyricsHttp, query: OnlineLyricsQuery): TxH
             songId = songId,
             title = item.str("songname"),
             artist = item.get("singer").asObjArray()
-                .mapNotNull { it.str("name")?.takeIf(String::isNotEmpty) }.joinToString(" "),
+                .mapNotNull { it.str("name")?.takeIf(String::isNotEmpty) }.joinToString(" / "),
             album = item.str("albumname"),
+            durationSec = item.str("interval")?.toDoubleOrNull(),
         )
     }.filter { it.mid.isNotEmpty() }
-    return pickBest(list, query)
+    return pickCandidates(list, query).distinctBy { it.mid }
 }
 
 /** 同时接收平台原文和译文，兼容明文、base64 与桌面端加密字段。 */
@@ -132,11 +134,36 @@ suspend fun searchTxLyrics(http: LyricsHttp, query: OnlineLyricsQuery): OnlineLy
         mid = originalMid,
         songId = query.platformId("tx", "songid", "songId")?.toLongOrNull(),
         title = query.title, artist = query.artist, album = query.album,
-    ) else searchTxHit(http, query) ?: return null
+    ) else searchTxHits(http, query).firstOrNull() ?: return null
 
     if (hit.songId != null) {
         fetchTxQrc(http, hit.songId)?.let { return it }
     }
 
     return fetchTxLrcByMid(http, hit.mid)
+}
+
+/** 读音缺失时仍补查行级接口；不把QQ中文译文作为补译来源。 */
+internal suspend fun searchTxLyricsProgressively(http: LyricsHttp, query: OnlineLyricsQuery, onHit: suspend (OnlineLyricsProviderHit) -> Unit): Boolean {
+    val attempted = mutableSetOf<String>()
+    var complete = false
+    var requestsOkay = true
+    suspend fun attempt(hit: TxHit) {
+        if (!attempted.add(hit.mid) || complete) return
+        val primary = hit.songId?.let { annotationRequest { fetchTxQrc(http, it) } }
+        if (hit.songId != null && primary == null) requestsOkay = false
+        if (primary != null) { onHit(primary); complete = !needsAnnotations(primary, com.muses.player.core.model.lyrics.OnlineLyricsSource.TX) }
+        if (complete) return
+        val fallback = annotationRequest { fetchTxLrcByMid(http, hit.mid) }
+        if (fallback == null) requestsOkay = false
+        if (fallback != null && fallback != primary) { onHit(fallback); complete = !needsAnnotations(fallback, com.muses.player.core.model.lyrics.OnlineLyricsSource.TX) }
+    }
+    query.platformId("tx", "songmid", "mid", "id")?.let { mid ->
+        attempt(TxHit(mid, query.platformId("tx", "songid", "songId")?.toLongOrNull(), query.title, query.artist, query.album))
+    }
+    if (!complete) {
+        val candidates = annotationRequest { searchTxHits(http, query) }.orEmpty()
+        for (hit in candidates.filter { it.mid !in attempted }.take(if (attempted.isEmpty()) 3 else 2)) { attempt(hit); if (complete) break }
+    }
+    return complete || (requestsOkay && attempted.isNotEmpty())
 }

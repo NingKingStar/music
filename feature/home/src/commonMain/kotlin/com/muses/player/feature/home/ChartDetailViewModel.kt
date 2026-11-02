@@ -122,13 +122,15 @@ class ChartDetailViewModel(
 
     fun play(index: Int) = playAt(index, shuffle = false)
 
+    // 使用用户点击时看到的结果快照，刷新或筛选后不会把旧索引指向另一首歌。
+    fun playResults(results: List<OnlineSearchResult>, start: Int = 0) = playAt(start, shuffle = false, results = results.toList())
+
     fun shuffle() {
         val songs = _state.value.songs
         if (songs.isNotEmpty()) playAt(songs.indices.random(), shuffle = true)
     }
 
-    private fun playAt(index: Int, shuffle: Boolean) {
-        val results = _state.value.songs
+    private fun playAt(index: Int, shuffle: Boolean, results: List<OnlineSearchResult> = _state.value.songs) {
         val target = results.getOrNull(index) ?: return
         val quality = LxQuality.fromKey(preferredQuality.value)?.key
         val songs: List<Song> = results.map { it.toSong(ONLINE_SOURCE_ID, quality) }

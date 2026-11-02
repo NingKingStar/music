@@ -103,6 +103,10 @@ internal object LyricTranslationPolicy {
             if (group.base.size == 1 && group.donor.size == 1) {
                 val line = donor.lines[group.donor.single()]
                 if (validTranslation(line.text, line.translation)) translated[group.base.single()] = line.translation!!
+            } else if (group.base.size == 1 && base.lines[group.base.single()].timingKind != com.muses.player.core.lyrics.model.LyricTimingKind.Precise && group.donor.all {
+                    validTranslation(donor.lines[it].text, donor.lines[it].translation)
+                }) {
+                translated[group.base.single()] = group.donor.joinToString(" ") { donor.lines[it].translation!!.trim() }
             } else if (group.base.size == group.donor.size && group.base.indices.all {
                     normalized(base.lines[group.base[it]].text) == normalized(donor.lines[group.donor[it]].text)
                 }) {

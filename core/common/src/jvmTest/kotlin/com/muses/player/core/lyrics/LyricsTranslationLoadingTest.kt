@@ -34,6 +34,29 @@ class LyricsTranslationLoadingTest {
     private fun loader(providers: List<LyricsProvider>, scope: CoroutineScope, dir: java.io.File? = null, now: () -> Long = { System.currentTimeMillis() }) =
         ProgressiveLyricsLoader(Amll(), providers, dir?.let { { it } }, scope, nowMs = now, totalTimeoutMs = 700, providerTimeoutMs = 350, hedgeDelayMs = 20)
 
+    @Test fun failedTranslationRetriesAfterThirtySecondsWithoutDroppingOriginal() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val dir = Files.createTempDirectory("translation-retry").toFile()
+        var now = 1_800_000_000_000L
+        val calls = AtomicInteger()
+        val failed = object : LyricsProvider {
+            override val id = OnlineLyricsSource.WY
+            override suspend fun searchLyrics(query: OnlineLyricsQuery): OnlineLyricsProviderHit? { calls.incrementAndGet(); return null }
+        }
+        try {
+            val sources = listOf(provider(OnlineLyricsSource.KW), failed)
+            loader(sources, scope, dir) { now }.observe(query).toList()
+            now += 10_000
+            val cached = loader(sources, scope, dir) { now }.observe(query).toList()
+            assertTrue(cached.first().fromCache)
+            assertEquals(1, calls.get())
+            now += 21_000
+            val result = loader(listOf(provider(OnlineLyricsSource.KW), provider(OnlineLyricsSource.WY, count = calls, translated = true)), scope, dir) { now }.observe(query).toList()
+            assertEquals(2, calls.get())
+            assertEquals("清晨安静", result.last().document.lines.first().translation)
+        } finally { scope.cancel(); dir.deleteRecursively() }
+    }
+
     @Test fun originalFirstDoesNotStopTranslationEnrichment() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {

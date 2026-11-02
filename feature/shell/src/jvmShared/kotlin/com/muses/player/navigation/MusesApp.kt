@@ -461,6 +461,7 @@ fun MusesApp(openSettingsRequest: Long = 0L) {
 
 @Composable
 private fun MusesAppContent(openSettingsRequest: Long) {
+    com.muses.player.feature.shell.platform.AppUpdateHost()
         // miuix-nav 返回栈（类型化路由，存栈恢复经 kotlinx.serialization；替代 CMP Navigation）
         // 启动落地首页（探索 = 排行榜 + 猜你喜欢）
         val backStack = rememberNavBackStack<MusesRoute>(MusesRoute.Tabs)
@@ -856,6 +857,10 @@ private fun MusesAppContent(openSettingsRequest: Long) {
                     closePlayer()
                     backStack.pushUnique(MusesRoute.OnlineSearch(keyword))
                 },
+                com.muses.player.core.ui.components.LocalOpenSongArtist provides { song ->
+                    closePlayer()
+                    backStack.pushUnique(MusesRoute.OnlineArtist(song.id, song.sourceId, song.path, song.title, song.artist))
+                },
                 com.muses.player.core.ui.components.LocalFavoriteSongs provides favorites,
                 com.muses.player.core.ui.components.LocalSetSongLiked provides setSongLiked,
                 com.muses.player.core.ui.components.LocalAddSongToPlaylist provides addSongToPlaylist,
@@ -1110,6 +1115,9 @@ private fun AppNavHost(
             UserCollectionRoute(route.collectionId, onBack = { backStack.pop() },
                 onManageDownloads = { backStack.pushUnique(MusesRoute.Downloads) })
         }
+        entry<MusesRoute.OnlineArtist>(swipeDismiss = NavSwipeDirection.LeftToRight) { route ->
+            OnlineArtistRoute(route, onBack = { backStack.pop() })
+        }
         entry<MusesRoute.LocalLibrary>(swipeDismiss = NavSwipeDirection.LeftToRight) {
             // 原曲库作为“我的”子页保留歌曲、专辑与艺术家入口。
             val playback = org.koin.compose.koinInject<com.muses.player.core.playback.PlaybackPort>()
@@ -1229,7 +1237,7 @@ private fun AppNavHost(
             )
         }
         entry<MusesRoute.LxScripts>(swipeDismiss = NavSwipeDirection.LeftToRight) {
-            LxScriptsScreen(onBack = { backStack.pop() })
+            LxScriptsScreen(onBack = { backStack.pop() }, onEditSource = { backStack.pushUnique(MusesRoute.LxSourceEdit(it)) })
         }
         entry<MusesRoute.Home> { MainTabPage(NavDestination.Home, backStack) }
         entry<MusesRoute.HomeCollection>(swipeDismiss = NavSwipeDirection.LeftToRight) { route ->
@@ -1244,7 +1252,7 @@ private fun AppNavHost(
             )
         }
         entry<MusesRoute.ChartDetail>(swipeDismiss = NavSwipeDirection.LeftToRight) { route ->
-            ChartDetailScreen(
+            ChartDetailRoute(
                 platform = route.platform,
                 chartId = route.chartId,
                 chartName = route.chartName,
@@ -1252,7 +1260,7 @@ private fun AppNavHost(
             )
         }
         entry<MusesRoute.PlaylistDetail>(swipeDismiss = NavSwipeDirection.LeftToRight) { route ->
-            ChartDetailScreen(
+            ChartDetailRoute(
                 platform = route.platform,
                 chartId = route.playlistId,
                 chartName = route.title,

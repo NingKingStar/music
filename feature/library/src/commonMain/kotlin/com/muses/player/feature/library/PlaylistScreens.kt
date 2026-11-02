@@ -41,6 +41,13 @@ const val DOWNLOADED_COLLECTION = "system:downloaded"
 @Composable
 fun PlaylistsScreen(store: UserPlaylistStore, likedCount: Int, downloadedCount: Int, onOpen: (String) -> Unit, onImport: () -> Unit = {}) {
     val playlists by store.playlists.collectAsState(initial = emptyList())
+    val downloads = org.koin.compose.koinInject<com.muses.player.core.download.DownloadQueueStore>()
+    val saved by downloads.downloadedSongs.collectAsState(initial = emptyList())
+    val savedIndex = remember(saved) { com.muses.player.core.model.SongMatchIndex(saved.map { it.toSong() }) }
+    val counts = remember(playlists, savedIndex) { playlists.associate { playlist -> playlist.id to
+        playlist.tracks.map { track -> val song = track.toSong();
+            if (song.sourceType == com.muses.player.core.model.SourceType.ONLINE) savedIndex.find(song)?.id ?: song.id else song.id
+        }.distinct().size } }
     val scope = rememberCoroutineScope()
     var creating by remember { mutableStateOf(false) }
     var showCreateMenu by remember { mutableStateOf(false) }
@@ -83,7 +90,7 @@ fun PlaylistsScreen(store: UserPlaylistStore, likedCount: Int, downloadedCount: 
                     MusesCover(playlist.tracks.firstOrNull { !it.coverUri.isNullOrBlank() }?.coverUri, size = 52.dp)
                     Column(Modifier.weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(playlist.name, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("${playlist.tracks.size} 首", color = MiuixTheme.colorScheme.onBackgroundVariant)
+                        Text("${counts[playlist.id] ?: playlist.tracks.size} 首", color = MiuixTheme.colorScheme.onBackgroundVariant)
                     }
                     SongMoreButton(onClick = { actions = playlist })
                 }
@@ -166,6 +173,7 @@ fun CollectionSongsScreen(
     onDownloadAll: (() -> Unit)? = null, downloadAllEnabled: Boolean = true,
     onRepairMetadata: (() -> Unit)? = null, repairingMetadata: Boolean = false,
     metadataStatus: String? = null,
+    metadataReport: String? = null, metadataRetryEnabled: Boolean = true,
     songStatus: (Song) -> String? = { null },
 ) {
     var query by rememberSaveable(title) { mutableStateOf("") }
@@ -177,10 +185,11 @@ fun CollectionSongsScreen(
     }
     var actionSong by remember { mutableStateOf<Song?>(null) }
     var showMetadataActions by remember { mutableStateOf(false) }
-    if (showMetadataActions) MusesActionsSheet(opened = true, onDismiss = { showMetadataActions = false },
-        label = "歌单信息", items = listOf(MusesActionItem("重新补全缺失信息") {
-            showMetadataActions = false; onRepairMetadata?.invoke()
-        }))
+    if (showMetadataActions) MusesFormSheet(title = "歌单信息", onDismiss = { showMetadataActions = false },
+        message = metadataStatus, dismissText = "关闭", confirmText = if (repairingMetadata) "正在完善" else "重试未完成",
+        confirmEnabled = !repairingMetadata && metadataRetryEnabled,
+        onConfirm = { showMetadataActions = false; onRepairMetadata?.invoke() },
+        content = { Text(metadataReport ?: "仅检查和补充缺失信息，保留歌曲及顺序。") })
     val visible = remember(songs, query) {
         songs.filter { query.isBlank() || it.title.contains(query.trim(), true) || it.artist.orEmpty().contains(query.trim(), true) }
     }
@@ -212,28 +221,17 @@ fun CollectionSongsScreen(
                             Text("${songs.size} 首", color = MiuixTheme.colorScheme.onBackgroundVariant)
                         }
                     }
-                    if (metadataStatus != null || repairingMetadata) Text(metadataStatus ?: "正在自动完善信息…", color = MiuixTheme.colorScheme.onBackgroundVariant)
+                    if (metadataStatus != null || repairingMetadata) Text(metadataStatus ?: "正在自动完善信息…",
+                        modifier = Modifier.clip(RoundedCornerShape(8.dp)).clickable { showMetadataActions = true }.padding(vertical = 6.dp),
+                        color = MiuixTheme.colorScheme.onBackgroundVariant)
                 }
             }
             stickyHeader(key = "actions") {
                 Column(Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.surface).padding(horizontal = 8.dp)) {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Row(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable(enabled = visible.isNotEmpty()) {
-                            visible.firstOrNull()?.let { onPlay(it, visible) }
-                        }.heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(32.dp).clip(RoundedCornerShape(16.dp)).background(MiuixTheme.colorScheme.onSurface), contentAlignment = Alignment.Center) {
-                                Icon(TablerIcons.PlayFill, null, tint = MiuixTheme.colorScheme.surface, modifier = Modifier.size(18.dp))
-                            }
-                            Text(if (query.isNotBlank()) "播放结果" else "播放全部", Modifier.padding(start = 9.dp), fontWeight = FontWeight.Medium)
-                            Text(" · ${visible.size}", color = MiuixTheme.colorScheme.onBackgroundVariant)
-                        }
-                        MusesIconButton(onClick = { showSearch = !showSearch; if (!showSearch) query = "" },
-                            imageVector = TablerIcons.Search, contentDescription = if (showSearch) "收起列表搜索" else "搜索当前列表")
-                        onDownloadAll?.let { download -> MusesIconButton(onClick = download, enabled = downloadAllEnabled,
-                            imageVector = TablerIcons.Download, contentDescription = "选择歌曲下载") }
-                        onManageDownloads?.let { manage -> MusesIconButton(onClick = manage,
-                            imageVector = TablerIcons.Download, contentDescription = "下载管理") }
-                    }
+                    SongListActions(count = visible.size, searching = showSearch, filtered = query.isNotBlank(),
+                        onPlay = { visible.firstOrNull()?.let { onPlay(it, visible) } },
+                        onSearch = { showSearch = !showSearch; if (!showSearch) query = "" },
+                        onDownload = onDownloadAll, downloadEnabled = downloadAllEnabled, onManageDownloads = onManageDownloads)
                     AnimatedVisibility(showSearch, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
                         Column(Modifier.padding(bottom = 8.dp)) {
                             LibrarySearchField(query, { query = it }, "搜索当前列表", onCancel = { query = ""; showSearch = false }, autoFocus = true)

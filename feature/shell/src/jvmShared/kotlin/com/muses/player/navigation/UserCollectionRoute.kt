@@ -63,8 +63,11 @@ internal fun UserCollectionRoute(collectionId: String, onBack: () -> Unit, onMan
         isDownloaded -> "已下载"
         else -> selected?.name ?: "歌单"
     }
-    val songs = remember(favorites, selected, downloaded, collectionId) {
-        val saved = downloaded.orEmpty().map { it.toSong() }
+    val saved = remember(downloaded) { downloaded.orEmpty().map { it.toSong() } }
+    val savedIndex = remember(saved) { com.muses.player.core.model.SongMatchIndex(saved) }
+    val savedIds = remember(saved) { saved.map { it.id }.toHashSet() }
+    val libraryById = remember(favorites.library) { favorites.library.associateBy { it.id } }
+    val songs = remember(favorites.likedSongs, libraryById, selected, saved, collectionId) {
         val raw = when {
             isLiked -> favorites.likedSongs
             isDownloaded -> saved
@@ -72,8 +75,8 @@ internal fun UserCollectionRoute(collectionId: String, onBack: () -> Unit, onMan
         }
         raw.map { song ->
             // 收藏关系保持不变；已下载的同曲优先使用实际文件播放，在线曲目仍可独立保存。
-            if (song.sourceType == SourceType.ONLINE) saved.firstOrNull { sameSong(it, song) } ?: song
-            else favorites.library.firstOrNull { it.id == song.id } ?: song
+            if (song.sourceType == SourceType.ONLINE) savedIndex.find(song) ?: song
+            else libraryById[song.id] ?: song
         }.distinctBy { it.id }
     }
     fun perform(action: suspend () -> Unit) {
@@ -86,7 +89,7 @@ internal fun UserCollectionRoute(collectionId: String, onBack: () -> Unit, onMan
     suspend fun prepare(queue: List<Song>) {
         // 设备下载目录不属于扫描音源。播放前登记其持久文件引用，供服务和桌面按 ID 回查。
         withContext(Dispatchers.IO) {
-            repository.prepareDownloads(queue.filter { song -> downloaded.orEmpty().any { it.toSong().id == song.id } })
+            repository.prepareDownloads(queue.filter { it.id in savedIds })
         }
     }
     suspend fun playbackQueue(queue: List<Song>): List<Song> {
@@ -113,10 +116,25 @@ internal fun UserCollectionRoute(collectionId: String, onBack: () -> Unit, onMan
         }) else null,
         repairingMetadata = selected?.let { (it.followPreferredQuality || it.metadataRepairRequested) && it.metadataRepairVersion < 1 } == true,
         metadataStatus = selected?.let { playlist ->
+            val missing = playlist.tracks.count { com.muses.player.core.search.needsSongMetadata(it.toSong()) }
             if ((playlist.followPreferredQuality || playlist.metadataRepairRequested) && playlist.metadataRepairVersion < 1)
-                "正在自动完善信息 · ${playlist.metadataRepairCursor}/${playlist.tracks.size}"
-            else playlist.tracks.count { com.muses.player.core.search.needsSongMetadata(it.toSong()) }.takeIf { it > 0 }?.let { "还有 $it 首信息待补全" }
+                "自动完善中 · 已检查 ${playlist.metadataRepairCursor.coerceAtMost(playlist.tracks.size)}/${playlist.tracks.size} 首"
+            else if (playlist.metadataRepairVersion > 0)
+                if (missing > 0) "检查完成 · $missing 首信息待补全" else "信息已完善"
+            else if (missing > 0) "$missing 首信息待补全" else null
         },
+        metadataReport = selected?.let { playlist ->
+            val missing = playlist.tracks.count { com.muses.player.core.search.needsSongMetadata(it.toSong()) }
+            val restored = (playlist.metadataRepairInitialMissing - missing).coerceAtLeast(0)
+            buildString {
+                append("共 ${playlist.tracks.size} 首，当前资料完整 ${playlist.tracks.size - missing} 首。")
+                if (playlist.tracks.size > songs.size) append("列表显示 ${songs.size} 首；${playlist.tracks.size - songs.size} 条记录映射到相同歌曲，仅合并展示，原记录保留。")
+                if (playlist.metadataRepairInitialMissing >= 0) append("本轮已补齐 $restored 首。")
+                if (missing > 0) append("仍有 $missing 首缺少资料，可能因接口不可用、未找到匹配版本或原目录缺失；可稍后重试。")
+                append("\n\n这里只完善歌名、歌手、封面等目录信息，不代表已验证所有歌曲可播放。不会自动替换成翻唱或不同版本。")
+            }
+        },
+        metadataRetryEnabled = selected?.tracks?.any { com.muses.player.core.search.needsSongMetadata(it.toSong()) } == true,
         songStatus = { song -> if (selected != null && song.sourceType == SourceType.ONLINE &&
             com.muses.player.core.search.needsSongMetadata(song)) "信息待补全" else null },
         onDownloadAll = if (selected != null) ({

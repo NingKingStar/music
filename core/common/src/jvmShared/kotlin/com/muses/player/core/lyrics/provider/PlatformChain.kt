@@ -16,6 +16,13 @@ class PlatformLyricsProvider(
     override val id: OnlineLyricsSource,
     private val http: LyricsHttp,
 ) : LyricsProvider {
+    override suspend fun searchProgressively(query: OnlineLyricsQuery, onHit: suspend (OnlineLyricsProviderHit) -> Unit): Boolean {
+        return when (id) {
+            OnlineLyricsSource.WY -> searchWyLyricsProgressively(http, query, onHit)
+            OnlineLyricsSource.TX -> searchTxLyricsProgressively(http, query, onHit)
+            else -> super.searchProgressively(query, onHit)
+        }
+    }
 
     override suspend fun searchLyrics(query: OnlineLyricsQuery): OnlineLyricsProviderHit? = when (id) {
         OnlineLyricsSource.KW -> searchKwLyrics(http, query)

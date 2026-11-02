@@ -29,7 +29,7 @@ class ProgressiveLyricsLoader(
     private val cacheDirectory: (() -> File)? = null,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val nowMs: () -> Long = { System.currentTimeMillis() },
-    private val totalTimeoutMs: Long = 10_000,
+    private val totalTimeoutMs: Long = 12_000,
     private val providerTimeoutMs: Long = 3_000,
     private val hedgeDelayMs: Long = 900,
     private val localLyrics: (suspend (OnlineLyricsQuery) -> String?)? = null,
@@ -43,6 +43,7 @@ class ProgressiveLyricsLoader(
         val romanizationBaseText: String? = null, val romanizationFallbackText: String? = null,
         val romanizationSource: String? = null, val romanizationCheckedAt: Long = 0,
         val romanizationRetryAt: Long = 0, val originalFingerprint: String? = null,
+        val translationRetryAt: Long = 0,
     )
     @Serializable private data class SavedTranslation(val index: Int, val timeMs: Long, val text: String, val translation: String? = null, val romanization: String? = null,
         val romanizationSyllables: List<SavedSyllable> = emptyList())
@@ -161,7 +162,7 @@ class ProgressiveLyricsLoader(
         val raw = parseRaw(entry) ?: return null
         val document = LyricRomanizationPolicy.removeDuplicateReadings(LyricTranslationPolicy.restrictTranslations(raw, entry.source))
         val annotations = entry.annotations.associateBy { it.index }
-        val matching = entry.revision >= 4 && entry.originalFingerprint == fingerprint(document)
+        val matching = entry.revision >= 5 && entry.originalFingerprint == fingerprint(document)
         val result = document.copy(lines = document.lines.mapIndexed { index, line ->
             val saved = annotations[index]
             if (saved != null && saved.timeMs == line.timeMs && saved.text == line.text) {
@@ -247,7 +248,7 @@ class ProgressiveLyricsLoader(
                     if (result.document == current && chosen.source == previous.source &&
                         result.translationSource == previousTranslationSource && reading.source == previousReadingSource) return@withLock
                 }
-                chosen = chosen.copy(revision = 4, translationSource = result.translationSource,
+                chosen = chosen.copy(revision = 5, translationSource = result.translationSource,
                     romanizationSource = reading.source, originalFingerprint = fingerprint(result.document),
                     annotations = result.document.lines.mapIndexedNotNull { index, line ->
                         if (!line.translation.isNullOrBlank() || !line.romanization.isNullOrBlank())
@@ -265,11 +266,11 @@ class ProgressiveLyricsLoader(
             cached(key)?.let { entry ->
                 offer(entry, fromCache = true)
                 val freshness = if (needsMoreTranslation()) 5L * 60_000 else 6L * 3_600_000
-                val translationFresh = entry.checkedAt > 0 && nowMs() - entry.checkedAt in 0..freshness
-                val readingFresh = if (!needsMoreRomanization()) entry.checkedAt > 0 && nowMs() - entry.checkedAt in 0..6L * 3_600_000
+                val translationFresh = (entry.checkedAt > 0 && nowMs() - entry.checkedAt in 0..freshness) || entry.translationRetryAt > nowMs()
+                val readingFresh = if (!needsMoreRomanization()) entry.savedAt > 0 && nowMs() - entry.savedAt in 0..6L * 3_600_000
                     else (entry.romanizationCheckedAt > 0 && nowMs() - entry.romanizationCheckedAt in 0..5L * 60_000) ||
                         entry.romanizationRetryAt > nowMs()
-                if (best != null && entry.revision >= 4 && translationFresh && readingFresh) return
+                if (best != null && entry.revision >= 5 && translationFresh && readingFresh) return
             }
             try {
                 withTimeoutOrNull(400) { localLyrics?.invoke(query) }?.takeIf { it.isNotBlank() }?.let {
@@ -282,8 +283,12 @@ class ProgressiveLyricsLoader(
                     val permits = networkPermits
                     suspend fun attempt(provider: LyricsProvider) {
                         try {
-                            val hit = withTimeoutOrNull(providerTimeoutMs) { provider.searchLyrics(query) } ?: return
-                            if (hit.text.isBlank()) return
+                            var compatibleResponse = false
+                            val budget = if (provider.id in listOf(OnlineLyricsSource.WY, OnlineLyricsSource.TX))
+                                minOf(totalTimeoutMs, providerTimeoutMs * 3) else providerTimeoutMs
+                            val completed = withTimeoutOrNull(budget) {
+                            provider.searchProgressively(query) { hit ->
+                            if (hit.text.isBlank()) return@searchProgressively
                             val candidate = offer(Entry(key, hit.text, provider.id.wire, hit.format.wire, hit.translationText, romanization = hit.romanizationText, savedAt = nowMs(),
                                 romanizationBaseText = hit.romanizationBaseText, romanizationFallbackText = hit.romanizationFallbackText,
                                 // QQ/网易的跨平台查询已由 pickBest 严格核对歌名与歌手；只整份采用，不据此逐句拼接。
@@ -292,8 +297,11 @@ class ProgressiveLyricsLoader(
                             if (provider.id in listOf(OnlineLyricsSource.WY, OnlineLyricsSource.TX)) {
                                 val current = flight.state.value.update?.document
                                 if (candidate != null && current != null && (candidate.lines.map { it.timeMs to it.text } == current.lines.map { it.timeMs to it.text } ||
-                                    LyricTranslationPolicy.compatible(current, candidate))) successfulReadingProviders.add(provider.id.wire)
+                                    LyricTranslationPolicy.compatible(current, candidate))) compatibleResponse = true
                             }
+                            }
+                            } == true
+                            if (completed && compatibleResponse) successfulReadingProviders.add(provider.id.wire)
                         } catch (e: CancellationException) { throw e } catch (_: Exception) { }
                     }
                     val native = providers.firstOrNull { it.id.wire == query.trackRef?.platform }
@@ -339,7 +347,9 @@ class ProgressiveLyricsLoader(
             best?.let {
                 val readingProviders = providers.filter { p -> p.id in listOf(OnlineLyricsSource.WY, OnlineLyricsSource.TX) }.map { p -> p.id.wire }
                 val checked = readingProviders.isNotEmpty() && successfulReadingProviders.containsAll(readingProviders)
-                remember(it.copy(checkedAt = nowMs(), revision = 4,
+                val translationChecked = !needsMoreTranslation() || "wy" in successfulReadingProviders
+                remember(it.copy(checkedAt = if (translationChecked) nowMs() else it.checkedAt, revision = 5,
+                    translationRetryAt = if (!translationChecked) nowMs() + 30_000 else 0,
                     romanizationCheckedAt = if (checked) nowMs() else it.romanizationCheckedAt,
                     romanizationRetryAt = if (needsMoreRomanization() && !checked) nowMs() + 30_000 else 0))
             } ?: synchronized(memory) {

@@ -89,9 +89,9 @@ private fun JsonElement?.path(vararg keys: String): String? {
     return (cur as? JsonPrimitive)?.takeIf { it !is JsonNull }?.content
 }
 
-private suspend fun searchWySongId(http: LyricsHttp, query: OnlineLyricsQuery): Long? {
+private suspend fun searchWySongIds(http: LyricsHttp, query: OnlineLyricsQuery): List<Long> {
     val keyword = buildKeyword(query)
-    if (keyword.isEmpty()) return null
+    if (keyword.isEmpty()) return emptyList()
     val url = "https://music.163.com/api/search/get/web?s=${java.net.URLEncoder.encode(keyword, "UTF-8")}" +
         "&type=1&offset=0&total=true&limit=10"
     val body = try {
@@ -99,8 +99,8 @@ private suspend fun searchWySongId(http: LyricsHttp, query: OnlineLyricsQuery): 
     } catch (e: CancellationException) {
         throw e
     } catch (_: Exception) {
-        return null
-    } ?: return null
+        return emptyList()
+    } ?: return emptyList()
     // 搜索返回结构兼容：老结构 result.songs.songs（对象包数组）与新结构 result.songs（直接数组）
     val songs = body.obj("result")?.arrCompat("songs").orEmpty()
     data class WySong(val id: Long, override val title: String?, override val artist: String?,
@@ -118,7 +118,7 @@ private suspend fun searchWySongId(http: LyricsHttp, query: OnlineLyricsQuery): 
             durationSec = s.str("duration")?.toDoubleOrNull()?.div(1000),
         )
     }
-    return pickBest(list, query)?.id
+    return pickCandidates(list, query).map { it.id }.distinct()
 }
 
 private suspend fun fetchWyEapiLyric(http: LyricsHttp, id: Long): JsonObject? {
@@ -151,7 +151,7 @@ private suspend fun fetchWyPublicLyric(http: LyricsHttp, id: Long): JsonObject? 
 /** wy 搜索主流程（wy.ts searchWyLyrics）；失败返回 null 由链上下一源承接 */
 suspend fun searchWyLyrics(http: LyricsHttp, query: OnlineLyricsQuery): OnlineLyricsProviderHit? {
     val id = query.platformId("wy", "songmid", "songId", "id")?.toLongOrNull()
-        ?: searchWySongId(http, query) ?: return null
+        ?: searchWySongIds(http, query).firstOrNull() ?: return null
 
     fetchWyEapiLyric(http, id)?.let { body ->
         pickWyLyricsBody(body)?.let { return it }
@@ -160,4 +160,27 @@ suspend fun searchWyLyrics(http: LyricsHttp, query: OnlineLyricsQuery): OnlineLy
         pickWyLyricsBody(body)?.let { return it }
     }
     return null
+}
+
+/** 原ID优先；缺注释时补查同ID另一接口及最多两个严格同曲候选。 */
+internal suspend fun searchWyLyricsProgressively(http: LyricsHttp, query: OnlineLyricsQuery, onHit: suspend (OnlineLyricsProviderHit) -> Unit): Boolean {
+    val attempted = mutableSetOf<Long>()
+    var complete = false
+    var requestsOkay = true
+    suspend fun attempt(id: Long) {
+        if (!attempted.add(id) || complete) return
+        val primary = annotationRequest { fetchWyEapiLyric(http, id) }?.let(::pickWyLyricsBody)
+        if (primary == null) requestsOkay = false
+        if (primary != null) { onHit(primary); complete = !needsAnnotations(primary, com.muses.player.core.model.lyrics.OnlineLyricsSource.WY) }
+        if (complete) return
+        val fallback = annotationRequest { fetchWyPublicLyric(http, id) }?.let(::pickWyLyricsBody)
+        if (fallback == null) requestsOkay = false
+        if (fallback != null && fallback != primary) { onHit(fallback); complete = !needsAnnotations(fallback, com.muses.player.core.model.lyrics.OnlineLyricsSource.WY) }
+    }
+    query.platformId("wy", "songmid", "songId", "id")?.toLongOrNull()?.let { attempt(it) }
+    if (!complete) {
+        val candidates = annotationRequest { searchWySongIds(http, query) }.orEmpty()
+        for (id in candidates.filter { it !in attempted }.take(if (attempted.isEmpty()) 3 else 2)) { attempt(id); if (complete) break }
+    }
+    return complete || (requestsOkay && attempted.isNotEmpty())
 }

@@ -105,9 +105,9 @@ fun DownloadQueueScreen(onBack: () -> Unit, manager: DownloadManager = koinInjec
         topBar = { MusesTopBar(title = "下载管理", onBack = onBack, bottomContent = {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                MusesTextButton(text = "下载中 · ${tasks.count { it.status != DownloadStatus.COMPLETED } + scrapeUploads.size}",
+                MusesTextButton(text = "下载任务 · ${tasks.count { it.status != DownloadStatus.COMPLETED } + scrapeUploads.size}",
                     modifier = Modifier.weight(1f), primary = !showCompleted, onClick = { showCompleted = false })
-                MusesTextButton(text = "已完成 · ${downloaded.size}", modifier = Modifier.weight(1f),
+                MusesTextButton(text = "已保存 · ${downloaded.size}", modifier = Modifier.weight(1f),
                     primary = showCompleted, onClick = { showCompleted = true })
             }
         }) },
@@ -184,7 +184,7 @@ fun DownloadQueueScreen(onBack: () -> Unit, manager: DownloadManager = koinInjec
 
                     if (!showCompleted && tasks.none { it.status != DownloadStatus.COMPLETED } && scrapeUploads.isEmpty()) {
                         item("empty") {
-                            Text("暂无下载中的任务\n在歌曲菜单点击「下载歌曲」即可开始", modifier = Modifier.fillMaxWidth().padding(vertical = 64.dp),
+                            Text("暂无下载任务\n在歌曲菜单点击「下载歌曲」即可开始", modifier = Modifier.fillMaxWidth().padding(vertical = 64.dp),
                                 style = MiuixTheme.textStyles.footnote1, color = scheme.onSurfaceVariantSummary,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                         }
@@ -203,6 +203,10 @@ fun DownloadQueueScreen(onBack: () -> Unit, manager: DownloadManager = koinInjec
                                 Text(title, style = MiuixTheme.textStyles.footnote1, color = scheme.onSurfaceVariantSummary)
                                 Text(entries.size.toString(), style = MiuixTheme.textStyles.footnote1,
                                     color = scheme.onSurfaceVariantSummary)
+                                if (entries.any { it.status == DownloadStatus.FAILED }) MusesTextButton(text = "重试失败",
+                                    enabled = !active, onClick = { manager.start(entries.filter { it.status == DownloadStatus.FAILED }.map { it.id }.toSet(), defaultTarget) })
+                                if (entries.all { it.status == DownloadStatus.PAUSED }) MusesTextButton(text = "继续本组",
+                                    enabled = !active, onClick = { manager.start(entries.map { it.id }.toSet(), defaultTarget) })
                             }
                         }
                         items(entries, key = { it.id }) { task ->

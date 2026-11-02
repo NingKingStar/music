@@ -50,3 +50,11 @@ fun sameSong(left: Song, right: Song): Boolean {
     val name = normalizeSongIdentity(left.title)
     return name.isNotEmpty() && name == normalizeSongIdentity(right.title) && sameArtists(left.artist, right.artist)
 }
+
+/** 先按 ID/规范歌名缩小候选，再用原 sameSong 判定；保持原集合中首个匹配项。 */
+class SongMatchIndex(songs: List<Song>) {
+    private val byId = songs.withIndex().groupBy { it.value.id }
+    private val byTitle = songs.withIndex().groupBy { normalizeSongIdentity(it.value.title) }
+    fun find(song: Song): Song? = (byId[song.id].orEmpty() + byTitle[normalizeSongIdentity(song.title)].orEmpty())
+        .asSequence().filter { sameSong(it.value, song) }.minByOrNull { it.index }?.value
+}

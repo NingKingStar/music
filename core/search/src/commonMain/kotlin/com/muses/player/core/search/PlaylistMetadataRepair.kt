@@ -85,7 +85,7 @@ class PlaylistMetadataRepair(private val http: SearchHttp, private val search: O
                                         .obj("req")?.obj("data")?.obj("track_info")?.let(::parseTxTrack)
                                         ?.takeIf { OnlineTrackIdentity.matches(ref, it.toTrackRef(ref.sourceId)) }
                                 } } catch (e: CancellationException) { throw e } catch (_: Exception) { null }
-                                val result = detail ?: search.search(ref.platform, "${song.title} ${song.artist.orEmpty()}", pageSize = 20).results
+                                val result = detail ?: search.search(ref.platform, "${song.title} ${song.artist.orEmpty()}", pageSize = 20, background = true).results
                                     .firstOrNull { OnlineTrackIdentity.matches(ref, it.toTrackRef(ref.sourceId)) }
                                 lock.withLock { if (result != null) found[song.id] = result; checked++ }
                             }

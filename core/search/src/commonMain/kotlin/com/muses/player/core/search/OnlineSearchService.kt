@@ -28,8 +28,9 @@ class OnlineSearchService(
     private data class Cached(val page: OnlineSearchPage, val time: Long)
     private val cache = LinkedHashMap<Query, Cached>()
     private val cacheLock = Any()
-    private val providerLocks = providers.associate { it.platform to Mutex() }
+    private val queryLocks = KeyedRequestLock<Query>()
     private val semaphore = Semaphore(concurrency.coerceAtLeast(1))
+    private val backgroundPermit = Semaphore(1)
 
     /** 平台 key → 展示名（供 UI 渲染筛选/标签） */
     val platformNames: Map<String, String> =
@@ -54,14 +55,16 @@ class OnlineSearchService(
         page: Int = 1,
         pageSize: Int = 30,
         forceRefresh: Boolean = false,
+        background: Boolean = false,
     ): OnlineSearchPage {
         val provider = providers.firstOrNull { it.platform == platform }
             ?: throw OnlineSearchException(platform, "不支持的平台：$platform")
         val query = Query(platform, keyword.trim(), page, pageSize)
-        return providerLocks.getValue(platform).withLock {
+        return queryLocks.withKey(query) {
             val cached = synchronized(cacheLock) { cache[query] }
-            if (!forceRefresh && cached != null && nowMs() - cached.time in 0 until cacheTtlMs) return@withLock cached.page
-            val result = semaphore.withPermit { provider.search(query.keyword, page, pageSize) }
+            if (!forceRefresh && cached != null && nowMs() - cached.time in 0 until cacheTtlMs) return@withKey cached.page
+            suspend fun request() = semaphore.withPermit { provider.search(query.keyword, page, pageSize) }
+            val result = if (background) backgroundPermit.withPermit { request() } else request()
             if (cacheTtlMs > 0) synchronized(cacheLock) {
                 cache[query] = Cached(result, nowMs())
                 while (cache.size > 64) cache.remove(cache.keys.first())

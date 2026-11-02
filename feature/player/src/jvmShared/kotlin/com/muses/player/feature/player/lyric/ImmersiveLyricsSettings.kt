@@ -147,14 +147,13 @@ internal fun LyricsSettingsContent(
                         fontSize = (previewSize * .85f).sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            Spacer(Modifier.height(18.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                LyricsDisplayChoice("译文", translation, translated, onTranslation, Modifier.weight(1f))
-                LyricsDisplayChoice("音译", romanization, romanized, onRomanization, Modifier.weight(1f))
+            if (translated || romanized) {
+                Spacer(Modifier.height(18.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (translated) LyricsDisplayChoice("译文", translation, true, onTranslation, Modifier.weight(1f))
+                    if (romanized) LyricsDisplayChoice("音译", romanization, true, onRomanization, Modifier.weight(1f))
+                }
             }
-            val statusHints = listOf(translationHint, romanizationHint).filter { it.isNotBlank() }
-            if (statusHints.isNotEmpty()) Text(statusHints.joinToString(" · "),
-                color = LyricsSecondary, fontSize = 11.sp, modifier = Modifier.padding(top = 9.dp))
             Spacer(Modifier.height(16.dp))
             PlayerLyricSlider("字号", textSize, 18L..32L, 2, "小", "大", { previewSize = it }, onTextSize)
             PlayerLyricSlider("句间距", spacing, 12L..36L, 4, "紧凑", "宽松", { previewSpacing = it }, onSpacing)

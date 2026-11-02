@@ -23,6 +23,9 @@ class PlaylistMetadataManager(
             for (signal in wake) {
                 while (isActive) {
                     val playlist = store.snapshot().firstOrNull { (it.followPreferredQuality || it.metadataRepairRequested) && it.metadataRepairVersion < 1 } ?: break
+                    if (playlist.metadataRepairInitialMissing < 0) {
+                        store.metadataStarted(playlist.id, playlist.tracks.count { needsSongMetadata(it.toSong()) })
+                    }
                     val cursor = playlist.metadataRepairCursor.coerceAtMost(playlist.tracks.size)
                     if (cursor == playlist.tracks.size) {
                         val retry = playlist.tracks.any { needsSongMetadata(it.toSong()) } && playlist.metadataRepairPass < 2

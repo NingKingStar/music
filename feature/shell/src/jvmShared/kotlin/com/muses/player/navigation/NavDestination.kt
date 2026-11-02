@@ -68,7 +68,7 @@ enum class NavDestination(
 /** 从最近的明确来源推断共享详情页归属，返回时自然恢复原栏；兼容旧恢复栈。 */
 internal fun activeDestination(stack: List<NavKey>): NavDestination {
     val shared: (NavKey) -> Boolean = {
-        it is MusesRoute.AlbumDetail || it is MusesRoute.ArtistDetail || it == MusesRoute.Downloads
+        it is MusesRoute.AlbumDetail || it is MusesRoute.ArtistDetail || it is MusesRoute.OnlineArtist || it == MusesRoute.Downloads
     }
     val key = stack.asReversed().firstOrNull { !shared(it) }
     return when {

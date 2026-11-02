@@ -1,6 +1,7 @@
 package com.muses.player.core.appupdate
 
 import kotlinx.coroutines.Dispatchers
+import kotlinx.serialization.json.*
 import kotlinx.coroutines.withContext
 
 /**
@@ -25,9 +26,11 @@ suspend fun checkLatestRelease(currentVersion: String): Pair<String, String>? {
                 return@withContext null
             }
             val body = connection.inputStream.bufferedReader().readText()
-            val tag = Regex("\"tag_name\"\\s*:\\s*\"(v\\d+\\.\\d+\\.\\d+)\"").find(body)?.groupValues?.getOrNull(1)
-            val htmlUrl = Regex("\"html_url\"\\s*:\\s*\"([^\"]+)\"").find(body)?.groupValues?.getOrNull(1)
-            if (tag != null && htmlUrl != null) tag to htmlUrl else null
+            val root = Json.parseToJsonElement(body).jsonObject
+            val tag = root["tag_name"]?.jsonPrimitive?.contentOrNull
+            val htmlUrl = root["html_url"]?.jsonPrimitive?.contentOrNull
+            if (tag != null && Regex("v[0-9]+(?:[.][0-9]+){2,3}").matches(tag) &&
+                htmlUrl?.startsWith("$REPOSITORY_URL/releases/tag/") == true) tag to htmlUrl else null
         } catch (_: Exception) {
             null
         } finally {

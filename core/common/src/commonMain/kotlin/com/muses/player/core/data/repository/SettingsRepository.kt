@@ -25,6 +25,13 @@ interface SettingsRepository {
     /** 空串为自动选择，@builtin 为内置优先，其他值为用户选中的脚本 ID。 */
     val preferredLxSource: Flow<String> get() = kotlinx.coroutines.flow.flowOf("")
     suspend fun setPreferredLxSource(sourceId: String) {}
+    /** 用户调整的备用脚本顺序，稳定ID持久化；空列表沿用自动策略。 */
+    val lxSourceOrder: Flow<List<String>> get() = kotlinx.coroutines.flow.flowOf(emptyList())
+    suspend fun setLxSourceOrder(sourceIds: List<String>) {}
+    suspend fun setLxSourcePriority(preferred: String, order: List<String>) {
+        setLxSourceOrder(order)
+        setPreferredLxSource(preferred)
+    }
     /** 上次完成扫描的时间戳（epoch millis，0 = 从未扫描） */
     val lastScanTimestamp: Flow<Long>
 
@@ -156,6 +163,21 @@ class DataStoreSettingsRepository constructor(
         get() = dataStore.data.map { it[PREFERRED_LX_SOURCE].orEmpty() }
     override suspend fun setPreferredLxSource(sourceId: String) {
         dataStore.edit { it[PREFERRED_LX_SOURCE] = sourceId }
+    }
+
+    override val lxSourceOrder: Flow<List<String>>
+        get() = dataStore.data.map { prefs ->
+            runCatching { (kotlinx.serialization.json.Json.parseToJsonElement(prefs[LX_SOURCE_ORDER] ?: "[]")
+                as kotlinx.serialization.json.JsonArray).mapNotNull { (it as? kotlinx.serialization.json.JsonPrimitive)?.content }.distinct()
+            }.getOrDefault(emptyList())
+        }
+    override suspend fun setLxSourceOrder(sourceIds: List<String>) {
+        val value = kotlinx.serialization.json.JsonArray(sourceIds.filter { it.isNotBlank() }.distinct().map { kotlinx.serialization.json.JsonPrimitive(it) }).toString()
+        dataStore.edit { it[LX_SOURCE_ORDER] = value }
+    }
+    override suspend fun setLxSourcePriority(preferred: String, order: List<String>) {
+        val value = kotlinx.serialization.json.JsonArray(order.filter { it.isNotBlank() }.distinct().map { kotlinx.serialization.json.JsonPrimitive(it) }).toString()
+        dataStore.edit { it[LX_SOURCE_ORDER] = value; it[PREFERRED_LX_SOURCE] = preferred }
     }
 
     override val lastScanTimestamp: Flow<Long>
@@ -309,6 +331,7 @@ class DataStoreSettingsRepository constructor(
         val AUDIO_FOCUS_ENABLED = booleanPreferencesKey("audio_focus_enabled")
         val BUILTIN_LX_SOURCES_ENABLED = booleanPreferencesKey("builtin_lx_sources_enabled")
         val PREFERRED_LX_SOURCE = stringPreferencesKey("preferred_lx_source")
+        val LX_SOURCE_ORDER = stringPreferencesKey("lx_source_order")
         val LAST_SCAN_TIMESTAMP = longPreferencesKey("last_scan_timestamp")
         val DOWNLOAD_QUALITY = stringPreferencesKey("download_quality")
         val DOWNLOAD_DEVICE_DIRECTORY = stringPreferencesKey("download_device_directory")

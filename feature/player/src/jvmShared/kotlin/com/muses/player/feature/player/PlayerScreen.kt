@@ -1,5 +1,7 @@
 package com.muses.player.feature.player
 
+import androidx.compose.ui.draw.clip
+
 import com.muses.player.core.ui.components.MusesBottomSheet
 import com.muses.player.core.ui.components.MusesDialog
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -877,6 +879,8 @@ private fun FixedSongHead(
 ) {
     val contentColor = LocalPlayerContentColor.current
     val showSourceDetails = LocalPlaybackSourceDetails.current
+    val openArtist = com.muses.player.core.ui.components.LocalOpenSongArtist.current
+    val artistSong = LocalImmersiveFavoriteSong.current
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         Column(
             modifier = Modifier.weight(1f),
@@ -900,7 +904,9 @@ private fun FixedSongHead(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     lineHeight = 18.sp,
-                    modifier = Modifier.padding(top = 2.dp),
+                    modifier = Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(6.dp))
+                        .clickable(enabled = openArtist != null && artistSong != null) { artistSong?.let { openArtist?.invoke(it) } }
+                        .padding(top = 2.dp, bottom = 6.dp),
                 )
             }
             // 来源与音质：只展示可核实信息，脚本声明与实测严格区分（见 playbackDetailSummary）

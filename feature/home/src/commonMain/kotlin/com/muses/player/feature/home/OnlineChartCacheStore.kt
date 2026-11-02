@@ -29,6 +29,22 @@ data class CachedChartSongs(
 
 /** 持久化榜单目录与歌曲页，避免每次启动或重新进入都请求网络。 */
 class OnlineChartCacheStore(private val dataStore: DataStore<Preferences>) {
+    suspend fun loadCover(platform: String, chartId: String): String? {
+        val raw = dataStore.data.first()[COVERS_KEY] ?: return null
+        val entry = runCatching { Json.parseToJsonElement(raw).jsonObject["$platform:$chartId"] as? JsonObject }.getOrNull() ?: return null
+        val age = Clock.System.now().toEpochMilliseconds() - (entry.long("at") ?: 0L)
+        return entry.string("url")?.takeIf { it.isNotBlank() && age in 0..CATALOG_COVER_TTL_MS }
+    }
+
+    suspend fun saveCover(platform: String, chartId: String, url: String) {
+        if (url.isBlank()) return
+        dataStore.edit { prefs ->
+            val entries = runCatching { Json.parseToJsonElement(prefs[COVERS_KEY] ?: "{}").jsonObject.toMutableMap() }.getOrDefault(mutableMapOf())
+            entries["$platform:$chartId"] = buildJsonObject { put("url", JsonPrimitive(url)); put("at", JsonPrimitive(Clock.System.now().toEpochMilliseconds())) }
+            val bounded = entries.entries.sortedByDescending { (it.value as? JsonObject)?.long("at") ?: 0L }.take(128).associate { it.toPair() }
+            prefs[COVERS_KEY] = JsonObject(bounded).toString()
+        }
+    }
 
     suspend fun loadCatalogs(): Map<String, CachedChartCatalog> = runCatching {
         val raw = dataStore.data.first()[CATALOG_KEY] ?: return emptyMap()
@@ -154,6 +170,8 @@ class OnlineChartCacheStore(private val dataStore: DataStore<Preferences>) {
         (this[key] as? JsonPrimitive)?.booleanOrNull
 
     private companion object {
+        val COVERS_KEY = stringPreferencesKey("online_chart_cover_cache")
+        const val CATALOG_COVER_TTL_MS = 24L * 60 * 60 * 1000
         val CATALOG_KEY = stringPreferencesKey("online_chart_catalog_cache")
         val SONGS_KEY = stringPreferencesKey("online_chart_songs_cache")
         const val CATALOG_TTL_MS = 7L * 24 * 60 * 60 * 1000

@@ -30,6 +30,7 @@ import org.koin.dsl.module
  */
 fun searchModule() = module {
     single { SearchHttp() }
+    single { com.muses.player.core.search.OnlineArtistService(get()) }
     single { OnlinePlaylistService(get()) }
     single { OnlineSongVersionService(get()) }
     single { KwSearchProvider(get()) }

@@ -53,6 +53,7 @@ fun lxSdkModule() = module {
                 val active = store.list().filter { it.enabled && (builtinEnabled || !it.isBuiltin) }
                 com.muses.player.core.lxsdk.LxSourcePreference.preferredIds(settings.preferredLxSource.first(), active)
             },
+            sourceOrderProvider = { settings.lxSourceOrder.first() },
             storedScriptsProvider = {
                 // 只登记已启用脚本；引擎仍按需加载（首次请求某平台时才建 QuickJS runtime）
                 val builtinEnabled = settings.builtinLxSourcesEnabled.first()
@@ -80,6 +81,6 @@ fun lxSdkModule() = module {
     single<OnlineTrackMetadataResolver> {
         val settings: SettingsRepository = get()
         CachedOnlineTrackMetadataResolver(LxOnlineMetadataResolver(get()),
-            namespaceProvider = { settings.preferredLxSource.first() })
+            namespaceProvider = { settings.preferredLxSource.first() + "|" + settings.lxSourceOrder.first().joinToString(",") })
     }
 }

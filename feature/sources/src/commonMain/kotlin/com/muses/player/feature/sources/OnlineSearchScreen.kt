@@ -143,20 +143,28 @@ fun OnlineSearchScreen(
                 ) {}
             }
 
+            var showSort by remember { mutableStateOf(false) }
+            if (showSort) com.muses.player.core.ui.components.MusesActionsSheet(
+                opened = true, onDismiss = { showSort = false }, label = "搜索结果排序",
+                items = listOf(
+                    com.muses.player.core.ui.components.MusesActionItem("相关性 · 原唱优先" + if (state.originalFirst) "（当前）" else "") {
+                        if (!state.originalFirst) viewModel.toggleOriginalFirst(); showSort = false
+                    },
+                    com.muses.player.core.ui.components.MusesActionItem("平台默认" + if (!state.originalFirst) "（当前）" else "") {
+                        if (state.originalFirst) viewModel.toggleOriginalFirst(); showSort = false
+                    },
+                ))
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 PlatformPill("歌曲", state.category == SearchCategory.ALL, { viewModel.setCategory(SearchCategory.ALL) })
                 PlatformPill("专辑", state.category == SearchCategory.ALBUMS, { viewModel.setCategory(SearchCategory.ALBUMS) })
                 PlatformPill("歌手", state.category == SearchCategory.ARTISTS, { viewModel.setCategory(SearchCategory.ARTISTS) })
-            }
-
-            if (state.category == SearchCategory.ALL && state.searched) {
-                Text(if (state.originalFirst) "排序：相关性 · 原唱优先 ⇄" else "排序：平台默认 ⇄",
-                    modifier = Modifier.fillMaxWidth().clickable { viewModel.toggleOriginalFirst() }
-                        .padding(horizontal = 20.dp, vertical = 8.dp),
-                    fontSize = 12.sp, color = scheme.primary)
+                Spacer(Modifier.weight(1f))
+                if (state.category == SearchCategory.ALL && state.searched) com.muses.player.core.ui.components.MusesTextButton(
+                    text = "排序", primary = state.originalFirst, onClick = { showSort = true })
             }
 
             // 提示横幅（如「该平台无可用脚本」）：点按可关闭
@@ -607,4 +615,3 @@ private fun LoadMoreRow(loading: Boolean, onClick: () -> Unit) {
         }
     }
 }
-

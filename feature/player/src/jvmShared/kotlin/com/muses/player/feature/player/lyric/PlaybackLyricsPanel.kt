@@ -99,8 +99,8 @@ internal fun LyricsToolbar(
 ) {
     val ink = LocalPlayerContentColor.current
     Row(modifier.height(64.dp), verticalAlignment = Alignment.CenterVertically) {
-        LyricToolButton("译", translation && translated, translated, "显示译词", ink, onTranslation, loading)
-        LyricToolButton("音", romanization && romanized, romanized, "显示音译", ink, onRomanization, loading)
+        if (translated) LyricToolButton("译", translation, true, "显示译词", ink, onTranslation)
+        if (romanized) LyricToolButton("音", romanization, true, "显示音译", ink, onRomanization)
         LyricToolButton("词", false, true, "歌词设置", ink, onSettings)
         Spacer(Modifier.weight(1f))
         MusesIconButton(onClick = onPlayPause,

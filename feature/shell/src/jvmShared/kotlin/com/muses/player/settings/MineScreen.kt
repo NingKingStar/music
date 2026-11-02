@@ -42,18 +42,21 @@ fun MineScreen(
                 .padding(padding)
                 .padding(top = 8.dp),
         ) {
-            SettingsBlockTitle("曲库工具")
+            SettingsBlockTitle("我的音乐")
             Card(modifier = Modifier.padding(horizontal = 12.dp)) {
                 ArrowPreference(title = "本地与云端音乐", onClick = onOpenLibrary)
-                ArrowPreference(title = "音源", onClick = onOpenSources)
-                ArrowPreference(title = "刮削", onClick = onOpenScrape)
                 ArrowPreference(title = "下载", onClick = onOpenDownloads)
-                ArrowPreference(title = "统计", onClick = onOpenStatistics)
                 ArrowPreference(title = "历史记录", onClick = onOpenHistory)
+            }
+            SettingsBlockTitle("音乐管理")
+            Card(modifier = Modifier.padding(horizontal = 12.dp)) {
+                ArrowPreference(title = "音源", onClick = onOpenSources)
+                ArrowPreference(title = "音乐信息整理", onClick = onOpenScrape)
+                ArrowPreference(title = "听歌统计", onClick = onOpenStatistics)
             }
             SettingsBlockTitle("应用")
             Card(modifier = Modifier.padding(horizontal = 12.dp)) {
-                ArrowPreference(title = "设置", onClick = onOpenSettings)
+                ArrowPreference(title = "设置", summary = com.muses.player.feature.shell.platform.appUpdateHint(), onClick = onOpenSettings)
             }
             Spacer(Modifier.height(16.dp + LocalBottomChromePadding.current))
         }
