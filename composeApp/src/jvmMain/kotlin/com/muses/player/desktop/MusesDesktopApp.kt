@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.window.WindowScope
 import androidx.compose.ui.window.WindowState
 import androidx.compose.runtime.Composable
@@ -12,7 +13,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import com.muses.player.core.ui.theme.MusesTheme
-import com.muses.player.navigation.MusesApp
+import com.muses.player.desktop.ui.DesktopShell
 import org.koin.compose.KoinApplication
 import org.koin.dsl.koinConfiguration
 
@@ -36,9 +37,8 @@ fun WindowScope.MusesDesktopApp(
                 Column(modifier = Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
                     DesktopTitleBar(windowState, onClose)
                     // 共享导航壳（hazeState 由 TabsLayout 内部 provide，磨砂导航/迷你条真磨砂）
-                    Box(modifier = Modifier.weight(1f).fillMaxSize()) {
-                        val settingsRequest by DesktopLyricsInteraction.settingsRequest.collectAsState()
-                        MusesApp(openSettingsRequest = settingsRequest)
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                                DesktopShell(onExit = onClose)
                     }
                 }
             }

@@ -113,6 +113,7 @@ kotlin {
         }
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
+            implementation(libs.kotlinx.serialization.json)
             // Dispatchers.Main 在桌面 JVM 靠 swing dispatcher 提供（CMP 1.12 起不传递，见 toml 同条目注释）
             implementation(libs.kotlinx.coroutines.swing)
             // 桌面远程封面经 composeApp 主类加载：ktor3 网络引擎为平台专属实现（ui-shared 只透传通用 API），此处显式声明
