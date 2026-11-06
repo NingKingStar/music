@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -113,6 +114,7 @@ fun DesktopLyricsWindow() {
             onCloseRequest = close,
             state = windowState,
             title = "Muses 桌面歌词",
+            icon = painterResource("muses/window-icon.png"),
             undecorated = true,
             transparent = true,
             alwaysOnTop = true,

@@ -1,6 +1,7 @@
 package com.muses.player.desktop
 
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -13,11 +14,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.Text
 import androidx.compose.runtime.Composable
@@ -27,12 +30,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -43,7 +49,6 @@ import com.muses.player.core.ui.icons.TablerIcons
 import java.awt.MouseInfo
 import java.awt.Toolkit
 import kotlinx.coroutines.withTimeoutOrNull
-import top.yukonga.miuix.kmp.squircle.squircleBackground
 
 /**
  * 自绘标题栏（无边框窗口的拖拽/控制条）：
@@ -196,14 +201,14 @@ fun WindowScope.DesktopTitleBar(
                 Box(
                     modifier = Modifier
                         .size(20.dp)
-                        .squircleBackground(scheme.primary, 6.dp),
+                        .clip(RoundedCornerShape(6.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(
-                        imageVector = TablerIcons.MusicNote,
+                    Image(
+                        painter = painterResource("muses/window-icon.png"),
                         contentDescription = null,
-                        tint = scheme.onPrimary,
-                        modifier = Modifier.size(13.dp),
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize(),
                     )
                 }
                 Text(

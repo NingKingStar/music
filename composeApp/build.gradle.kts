@@ -199,7 +199,7 @@ compose.desktop {
                 shortcut = true
                 dirChooser = true
                 upgradeUuid = "5d86c48d-082d-4cb1-911f-17f7fe6676c5"
-                // 与安卓占位同设计语言（深色圆底 + 浅蓝播放三角），经 jpackage --icon 注入
+                // K 方案：珊瑚红圆角底 + 奶油色音符精灵；经 jpackage --icon 注入 EXE
                 iconFile = file("icons/muses.ico")
             }
         }

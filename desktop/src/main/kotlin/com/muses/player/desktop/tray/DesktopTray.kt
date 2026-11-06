@@ -9,7 +9,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import java.awt.Color
 import java.awt.EventQueue
-import java.awt.Font
 import java.awt.Image
 import java.awt.MenuItem
 import java.awt.PopupMenu
@@ -116,18 +115,21 @@ class DesktopTray(
         ImageIO.read(javaClass.getResourceAsStream("/muses/tray-icon.png"))
     }.getOrNull() ?: drawFallbackIcon()
 
-    /** 程序化兜底图标：项目蓝圆底 + 白色 M。 */
+    /** 程序化兜底图标：珊瑚红圆角底 + 奶油色音符精灵。 */
     private fun drawFallbackIcon(): Image {
         val size = 32
         val img = BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
         val g = img.createGraphics()
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-        g.color = Color(0x89, 0xB4, 0xFA)
-        g.fillOval(1, 1, size - 3, size - 3)
-        g.color = Color.WHITE
-        g.font = Font(Font.SANS_SERIF, Font.BOLD, 17)
-        val fm = g.fontMetrics
-        g.drawString("M", (size - fm.stringWidth("M")) / 2, size / 2 + fm.ascent / 2 - 2)
+        g.color = Color(0xFF, 0x4F, 0x53)
+        g.fillRoundRect(1, 1, size - 2, size - 2, 9, 9)
+        g.color = Color(0xFF, 0xF1, 0xDB)
+        g.fillOval(7, 6, 18, 18)
+        g.fillPolygon(intArrayOf(10, 18, 21), intArrayOf(20, 20, 29), 3)
+        g.color = Color(0x77, 0x1C, 0x19)
+        g.fillOval(12, 12, 4, 6)
+        g.stroke = java.awt.BasicStroke(1.8f, java.awt.BasicStroke.CAP_ROUND, java.awt.BasicStroke.JOIN_ROUND)
+        g.drawArc(18, 11, 7, 6, 200, 140)
         g.dispose()
         return img
     }
