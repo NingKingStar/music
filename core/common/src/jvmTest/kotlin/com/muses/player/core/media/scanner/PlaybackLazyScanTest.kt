@@ -82,6 +82,17 @@ class PlaybackLazyScanTest {
         assertEquals("夜曲", merged.title)
     }
 
+    @Test
+    fun windows_path_falls_back_to_file_name() {
+        val song = filenameSong().copy(
+            path = "C:\\Users\\me\\Music\\晴天.mp3",
+            title = "晴天",
+            sourceType = SourceType.LOCAL,
+        )
+        val merged = PlaybackLazyScan.merge(song, PlaybackLazyScan.FileTags())!!
+        assertEquals("晴天", merged.title)
+    }
+
     // ── coverBackfill：封面回填脱离版本门禁 ──
 
     @Test

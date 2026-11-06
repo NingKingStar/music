@@ -57,10 +57,14 @@ object PlaybackLazyScan {
         // 旧 SCRAPE 标记曾表示仅库内修改，不可永久盖住文件真实值。
         val resolved = song.copy(
             title = tags.title?.takeIf { it.isNotBlank() }
-                ?: song.path.substringBefore('?').substringAfterLast('/').substringBeforeLast('.').let {
-                    if (song.path.startsWith("content://") || it.isBlank()) song.title else
-                        runCatching { java.net.URLDecoder.decode(it.replace("+", "%2B"), "UTF-8") }.getOrDefault(it)
-                },
+                ?: song.path.substringBefore('?')
+                    .substringAfterLast('/')
+                    .substringAfterLast('\\')
+                    .substringBeforeLast('.')
+                    .let {
+                        if (song.path.startsWith("content://") || it.isBlank()) song.title else
+                            runCatching { java.net.URLDecoder.decode(it.replace("+", "%2B"), "UTF-8") }.getOrDefault(it)
+                    },
             artist = tags.artist?.takeIf { it.isNotBlank() },
             album = tags.album?.takeIf { it.isNotBlank() },
             lyrics = tags.lyrics?.takeIf { it.isNotBlank() },

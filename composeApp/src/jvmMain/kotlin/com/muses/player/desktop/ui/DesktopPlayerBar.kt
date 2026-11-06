@@ -50,7 +50,13 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
-fun DesktopPlayerBar(knownSongs: List<Song>) {
+fun DesktopPlayerBar(
+    knownSongs: List<Song>,
+    isLiked: (Song) -> Boolean,
+    onToggleLike: (Song) -> Unit,
+    panel: DesktopPlayerPanel,
+    onPanelChange: (DesktopPlayerPanel) -> Unit,
+) {
     val scheme = MiuixTheme.colorScheme
     val hook = remember { DesktopRuntime.playerHook() }
     val isPlaying by hook.isPlaying.collectAsState()
@@ -60,6 +66,7 @@ fun DesktopPlayerBar(knownSongs: List<Song>) {
     val meta by hook.currentMeta.collectAsState()
     val volume by hook.volume.collectAsState()
     val config by hook.playerConfig.collectAsState()
+    val playbackError by hook.playbackError.collectAsState()
     val song = knownSongs.firstOrNull { it.id == currentId }
     val title = meta?.title?.takeIf { it.isNotBlank() } ?: song?.title ?: "未在播放"
     val artist = meta?.artist?.takeIf { it.isNotBlank() } ?: song?.artist ?: "选择一首歌开始播放"
@@ -68,6 +75,7 @@ fun DesktopPlayerBar(knownSongs: List<Song>) {
     val hasSong = currentId != null || meta != null
     val effectiveDuration = duration.coerceAtLeast(1L)
     val positionFraction = (position.toFloat() / effectiveDuration).coerceIn(0f, 1f)
+    val liked = song != null && isLiked(song)
 
     Column(Modifier.fillMaxWidth().height(88.dp).background(scheme.surface)) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(scheme.onBackground.copy(alpha = 0.07f)))
@@ -77,10 +85,22 @@ fun DesktopPlayerBar(knownSongs: List<Song>) {
                 Column(Modifier.padding(start = 11.dp).weight(1f)) {
                     Text(title, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = scheme.onBackground,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(artist, fontSize = 10.sp, color = scheme.onBackgroundVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+                    Text(
+                        playbackError ?: artist,
+                        fontSize = 10.sp,
+                        color = if (playbackError != null) scheme.error else scheme.onBackgroundVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp),
+                    )
                 }
-                PlayerIconButton(TablerIcons.Heart, "喜欢", 26.dp, enabled = hasSong) {}
+                PlayerIconButton(
+                    if (liked) TablerIcons.HeartFill else TablerIcons.Heart,
+                    if (liked) "取消喜欢" else "喜欢",
+                    26.dp,
+                    enabled = hasSong,
+                    tint = if (liked) scheme.primary else null,
+                ) { song?.let(onToggleLike) }
             }
 
             Column(Modifier.weight(1f).padding(horizontal = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -145,11 +165,24 @@ fun DesktopPlayerBar(knownSongs: List<Song>) {
                     modifier = Modifier.clip(RoundedCornerShape(3.dp)).background(scheme.surfaceContainerHigh).padding(horizontal = 5.dp, vertical = 2.dp),
                 )
                 Spacer(Modifier.width(10.dp))
-                PlayerIconButton(TablerIcons.MoreHorizontal, "更多播放操作", 26.dp) {}
+                PlayerIconButton(
+                    TablerIcons.QueueMusic,
+                    "播放队列",
+                    26.dp,
+                    tint = if (panel == DesktopPlayerPanel.QUEUE) scheme.primary else null,
+                ) { onPanelChange(DesktopPlayerPanel.QUEUE) }
+                PlayerIconButton(
+                    TablerIcons.MusicNote,
+                    "歌词",
+                    26.dp,
+                    tint = if (panel == DesktopPlayerPanel.LYRICS) scheme.primary else null,
+                ) { onPanelChange(DesktopPlayerPanel.LYRICS) }
             }
         }
     }
 }
+
+enum class DesktopPlayerPanel { NONE, QUEUE, LYRICS }
 
 private fun formatPlaybackTime(ms: Long): String {
     if (ms <= 0) return "0:00"
