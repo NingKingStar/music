@@ -74,6 +74,7 @@ import com.muses.player.core.lyrics.DesktopLyricsState
 import com.muses.player.core.search.OnlineSearchService
 import com.muses.player.core.search.PlatformSearchOutcome
 import com.muses.player.core.data.repository.SettingsRepository
+import com.muses.player.core.data.repository.SearchHistoryStore
 import com.muses.player.core.model.Song
 import com.muses.player.core.model.SourceType
 import com.muses.player.core.model.download.DownloadStatus
@@ -141,6 +142,7 @@ fun DesktopShell(onExit: () -> Unit = {}) {
     val favoritesStore = koinInject<FavoriteSongsStore>()
     val downloadStore = koinInject<DownloadQueueStore>()
     val settingsRepository = koinInject<SettingsRepository>()
+    val searchHistoryStore = koinInject<SearchHistoryStore>()
     val onlineSearch = koinInject<OnlineSearchService>()
     val onlineCharts = koinInject<OnlineChartService>()
     val downloadManager = koinInject<DownloadManager>()
@@ -149,6 +151,7 @@ fun DesktopShell(onExit: () -> Unit = {}) {
     val localSongs by songRepository.observeSongs().collectAsState(initial = emptyList())
     val favoriteState by favoritesStore.state.collectAsState()
     val downloaded by downloadStore.downloadedSongs.collectAsState(initial = emptyList())
+    val recentSearches by searchHistoryStore.entries.collectAsState(initial = emptyList())
     val downloadTasks by downloadManager.tasks.collectAsState(initial = emptyList())
     val homeState by homeViewModel.state.collectAsState()
 
@@ -329,6 +332,7 @@ fun DesktopShell(onExit: () -> Unit = {}) {
         searchLoading = true
         searchError = null
         searchSongs = emptyList()
+        scope.launch { searchHistoryStore.record(value) }
         scope.launch {
             val outcomes = runCatching { onlineSearch.searchAll(value) }.getOrElse { error ->
                 searchError = error.message ?: "在线搜索失败，请稍后重试"
@@ -475,6 +479,9 @@ fun DesktopShell(onExit: () -> Unit = {}) {
                                 songs = visibleSongs,
                                 loading = searchLoading,
                                 error = searchError,
+                                recentSearches = recentSearches.filterNot { it.equals(query, true) },
+                                onRecent = ::runSearch,
+                                onClearHistory = { scope.launch { searchHistoryStore.clear() } },
                                 onPlay = { song -> playSong(song, visibleSongs) },
                             )
                             DesktopSection.SOURCES -> DesktopSourcesPage(
@@ -1046,7 +1053,6 @@ private fun DesktopSourcesPage(
         when (val status = urlStatus) {
             LxUrlImportStatus.Success -> {
                 showUrlImport = false
-                onToast("音源脚本已导入并设为优先")
                 viewModel.resetUrlImportStatus()
             }
             is LxUrlImportStatus.Failure -> {
@@ -1912,6 +1918,9 @@ private fun DesktopSearchPage(
     songs: List<Song>,
     loading: Boolean,
     error: String?,
+    recentSearches: List<String>,
+    onRecent: (String) -> Unit,
+    onClearHistory: () -> Unit,
     onPlay: (Song) -> Unit,
 ) {
     val scheme = MiuixTheme.colorScheme
@@ -1919,6 +1928,21 @@ private fun DesktopSearchPage(
         Column(Modifier.fillMaxWidth().height(66.dp), verticalArrangement = Arrangement.Center) {
             Text("搜索结果", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = scheme.onBackground)
             Text("“$keyword” · ${songs.size} 个结果", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 3.dp))
+        }
+        if (recentSearches.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("最近搜索", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(end = 8.dp))
+                recentSearches.take(6).forEach { word ->
+                    Box(
+                        Modifier.padding(end = 6.dp).widthIn(max = 140.dp).clip(RoundedCornerShape(5.dp))
+                            .background(scheme.surfaceContainerHigh)
+                            .clickable(role = Role.Button) { onRecent(word) }
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    ) { Text(word, fontSize = 10.sp, color = scheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                }
+                Spacer(Modifier.weight(1f))
+                Text("清除", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.clickable(role = Role.Button, onClick = onClearHistory))
+            }
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(scheme.onBackground.copy(alpha = 0.08f)))
         when {
