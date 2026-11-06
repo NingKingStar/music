@@ -69,6 +69,8 @@ import com.muses.player.core.data.repository.UserPlaylistStore
 import com.muses.player.core.data.repository.SongRepository
 import com.muses.player.core.data.repository.FavoriteSongsStore
 import com.muses.player.core.download.DownloadQueueStore
+import com.muses.player.core.lyrics.DesktopLyricsSnapshot
+import com.muses.player.core.lyrics.DesktopLyricsState
 import com.muses.player.core.search.OnlineSearchService
 import com.muses.player.core.search.PlatformSearchOutcome
 import com.muses.player.core.data.repository.SettingsRepository
@@ -228,6 +230,18 @@ fun DesktopShell(onExit: () -> Unit = {}) {
         section == DesktopSection.DOWNLOADED -> downloadedSongs.filterByQuery(query)
         section == DesktopSection.SEARCH -> searchSongs.filterByQuery(query)
         else -> emptyList()
+    }
+    val desktopPlayback = remember { DesktopRuntime.playerHook() }
+    val desktopSongId by desktopPlayback.currentSongId.collectAsState()
+    val desktopSong = knownSongs.firstOrNull { it.id == desktopSongId }
+    val desktopLyrics = remember(desktopSong?.id, desktopSong?.lyrics) {
+        LyricsParser.parseDocument(desktopSong?.lyrics)
+    }
+    LaunchedEffect(desktopSongId, desktopLyrics) {
+        DesktopLyricsState.publish(
+            if (desktopSong == null) DesktopLyricsSnapshot()
+            else DesktopLyricsSnapshot(desktopSong.id, desktopSong.title, desktopSong.artist, desktopLyrics),
+        )
     }
 
     fun openPlaylist(id: String) {
