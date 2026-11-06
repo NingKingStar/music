@@ -147,7 +147,7 @@ fun WindowScope.DesktopTitleBar(
 
     Column(modifier = Modifier.fillMaxWidth().background(scheme.surface)) {
         Row(
-            modifier = Modifier.fillMaxWidth().height(40.dp),
+            modifier = Modifier.fillMaxWidth().height(48.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // 可拖拽区：应用标识 + 标题（拖拽移动，双击切换最大化）
@@ -195,13 +195,13 @@ fun WindowScope.DesktopTitleBar(
                             }
                         }
                     }
-                    .padding(horizontal = 12.dp),
+                    .padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
                     modifier = Modifier
-                        .size(20.dp)
-                        .clip(RoundedCornerShape(6.dp)),
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(8.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Image(
@@ -214,9 +214,9 @@ fun WindowScope.DesktopTitleBar(
                 Text(
                     text = title,
                     color = scheme.onBackground,
-                    style = MiuixTheme.textStyles.footnote1,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(start = 8.dp),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(start = 10.dp),
                 )
             }
 

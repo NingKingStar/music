@@ -508,7 +508,7 @@ fun DesktopShell(onExit: () -> Unit = {}) {
         }
         if (playerPanel != DesktopPlayerPanel.NONE) {
             Box(
-                Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(bottom = 88.dp),
+                Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(bottom = 96.dp),
             ) {
                 DesktopSidePanelView(
                     panel = playerPanel,
@@ -520,7 +520,7 @@ fun DesktopShell(onExit: () -> Unit = {}) {
         toast?.let {
             Box(
                 Modifier.align(Alignment.BottomCenter)
-                    .padding(bottom = 98.dp)
+                    .padding(bottom = 106.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(scheme.onBackground.copy(alpha = 0.88f))
                     .padding(horizontal = 16.dp, vertical = 9.dp),
@@ -624,7 +624,7 @@ private fun DesktopSidePanelView(
     val lyricsSearch by hook.lyricsSearch.collectAsState()
     val songsById = remember(knownSongs) { knownSongs.associateBy { it.id } }
     val currentSong = currentId?.let { songsById[it] }
-    Column(Modifier.width(326.dp).fillMaxHeight().background(scheme.surface).drawBehind {
+    Column(Modifier.width(340.dp).fillMaxHeight().background(scheme.surface).drawBehind {
         drawLine(
             color = scheme.onBackground.copy(alpha = 0.08f),
             start = Offset(0f, 0f),
@@ -633,18 +633,18 @@ private fun DesktopSidePanelView(
         )
     }) {
         Row(
-            Modifier.fillMaxWidth().height(54.dp).padding(start = 18.dp, end = 10.dp),
+            Modifier.fillMaxWidth().height(60.dp).padding(start = 20.dp, end = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 if (panel == DesktopPlayerPanel.QUEUE) "播放队列" else "歌词",
-                fontSize = 14.sp,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = scheme.onBackground,
                 modifier = Modifier.weight(1f),
             )
             if (panel == DesktopPlayerPanel.QUEUE && queueIds.isNotEmpty()) {
-                Text("${queueIds.size} 首", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(end = 6.dp))
+                Text("${queueIds.size} 首", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(end = 6.dp))
             }
             DesktopIconButton(TablerIcons.Close, "关闭面板", 28.dp, onClick = onClose)
         }
@@ -653,7 +653,7 @@ private fun DesktopSidePanelView(
             DesktopPlayerPanel.QUEUE -> {
                 if (queueIds.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("播放队列是空的", fontSize = 12.sp, color = scheme.onBackgroundVariant)
+                        Text("播放队列是空的", fontSize = 13.sp, color = scheme.onBackgroundVariant)
                     }
                 } else {
                     Column(Modifier.fillMaxSize()) {
@@ -664,13 +664,13 @@ private fun DesktopSidePanelView(
                                 val interaction = remember { MutableInteractionSource() }
                                 val hovered by interaction.collectIsHoveredAsState()
                                 Row(
-                                    Modifier.fillMaxWidth().height(56.dp)
+                                    Modifier.fillMaxWidth().height(64.dp)
                                         .background(if (active) scheme.primary.copy(alpha = 0.08f) else if (hovered) scheme.surfaceContainerHigh else Color.Transparent)
                                         .hoverable(interaction)
                                         .clickable(interactionSource = interaction, indication = null) {
                                             if (index in queueIds.indices) hook.playAtIndex(index)
                                         }
-                                        .padding(start = 14.dp, end = 8.dp),
+                                        .padding(start = 16.dp, end = 8.dp),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     Box(Modifier.width(22.dp), contentAlignment = Alignment.Center) {
@@ -682,14 +682,14 @@ private fun DesktopSidePanelView(
                                                 modifier = Modifier.size(14.dp),
                                             )
                                         } else {
-                                            Text("${index + 1}", fontSize = 10.sp, color = scheme.onBackgroundVariant)
+                                            Text("${index + 1}", fontSize = 11.sp, color = scheme.onBackgroundVariant)
                                         }
                                     }
-                                    MusesCover(song?.coverUri, size = 34.dp, radius = MusesCoverRadius.SM)
-                                    Column(Modifier.weight(1f).padding(start = 9.dp)) {
+                                    MusesCover(song?.coverUri, size = 40.dp, radius = MusesCoverRadius.SM)
+                                    Column(Modifier.weight(1f).padding(start = 11.dp)) {
                                         Text(
                                             song?.title ?: "未知歌曲",
-                                            fontSize = 11.sp,
+                                            fontSize = 12.sp,
                                             fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
                                             color = if (active) scheme.primary else scheme.onBackground,
                                             maxLines = 1,
@@ -697,7 +697,7 @@ private fun DesktopSidePanelView(
                                         )
                                         Text(
                                             song?.artist ?: "—",
-                                            fontSize = 9.sp,
+                                            fontSize = 10.sp,
                                             color = scheme.onBackgroundVariant,
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis,
@@ -711,7 +711,7 @@ private fun DesktopSidePanelView(
                             }
                         }
                         Box(Modifier.fillMaxWidth().height(1.dp).background(scheme.onBackground.copy(alpha = 0.07f)))
-                        Row(Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth().height(58.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                             SecondaryButton("清空队列") { hook.clearQueueItems() }
                         }
                     }
@@ -729,13 +729,13 @@ private fun DesktopSidePanelView(
                 }
                 if (currentSong == null) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("选择一首歌开始播放", fontSize = 12.sp, color = scheme.onBackgroundVariant)
+                        Text("选择一首歌开始播放", fontSize = 13.sp, color = scheme.onBackgroundVariant)
                     }
                 } else if (lines.isEmpty()) {
                     Column(Modifier.fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Spacer(Modifier.weight(1f))
-                        Text(currentSong.title, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = scheme.onBackground, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(currentSong.artist ?: "未知歌手", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 4.dp))
+                        Text(currentSong.title, fontSize = 17.sp, fontWeight = FontWeight.Medium, color = scheme.onBackground, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(currentSong.artist ?: "未知歌手", fontSize = 12.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 4.dp))
                         Spacer(Modifier.height(22.dp))
                         when (val state = lyricsSearch) {
                             is com.muses.player.desktop.playback.DesktopLyricsSearchState.Searching ->
@@ -804,8 +804,8 @@ private fun DesktopSettingsPage(
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 34.dp, vertical = 10.dp),
     ) {
-        Text("设置", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = scheme.onBackground)
-        Text("播放、歌词与下载的默认行为", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 4.dp, bottom = 22.dp))
+        Text("设置", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = scheme.onBackground)
+        Text("播放、歌词与下载的默认行为", fontSize = 12.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 4.dp, bottom = 24.dp))
 
         DesktopSettingSection("播放与下载") {
             DesktopSettingActionRow("在线播放音质", "首选 ${qualitySelectionLabel(playQuality)}，不可用时自动回退", "选择") {
@@ -923,10 +923,10 @@ private fun DesktopQualityDialog(
 @Composable
 private fun DesktopSettingSection(title: String, content: @Composable () -> Unit) {
     val scheme = MiuixTheme.colorScheme
-    Text(title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 6.dp, bottom = 8.dp))
+    Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 8.dp, bottom = 10.dp))
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(scheme.surface)
-            .padding(horizontal = 16.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(scheme.surfaceContainer)
+            .padding(horizontal = 18.dp),
     ) { content() }
     Spacer(Modifier.height(22.dp))
 }
@@ -942,19 +942,19 @@ private fun DesktopSettingActionRow(
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     Row(
-        Modifier.fillMaxWidth().height(64.dp)
+        Modifier.fillMaxWidth().height(72.dp)
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(vertical = 10.dp),
+            .padding(vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = scheme.onBackground)
-            Text(summary, fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 3.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = scheme.onBackground)
+            Text(summary, fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 3.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Text(
             action,
-            fontSize = 11.sp,
+            fontSize = 12.sp,
             color = if (hovered) scheme.primary else scheme.onBackgroundVariant,
             modifier = Modifier.padding(horizontal = 8.dp),
         )
@@ -970,10 +970,10 @@ private fun DesktopSettingToggleRow(
     onChange: (Boolean) -> Unit,
 ) {
     val scheme = MiuixTheme.colorScheme
-    Row(Modifier.fillMaxWidth().height(64.dp).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(72.dp).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = scheme.onBackground)
-            Text(summary, fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 3.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = scheme.onBackground)
+            Text(summary, fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 3.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         DesktopToggle(checked, onChange)
     }
@@ -983,12 +983,12 @@ private fun DesktopSettingToggleRow(
 @Composable
 private fun DesktopSettingRowText(title: String, summary: String, value: String) {
     val scheme = MiuixTheme.colorScheme
-    Row(Modifier.fillMaxWidth().height(64.dp).padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().height(72.dp).padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(title, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = scheme.onBackground)
-            Text(summary, fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 3.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = scheme.onBackground)
+            Text(summary, fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 3.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Text(value, fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(horizontal = 8.dp))
+        Text(value, fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(horizontal = 8.dp))
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(scheme.onBackground.copy(alpha = 0.06f)))
 }
@@ -997,13 +997,13 @@ private fun DesktopSettingRowText(title: String, summary: String, value: String)
 private fun DesktopToggle(checked: Boolean, onChange: (Boolean) -> Unit) {
     val scheme = MiuixTheme.colorScheme
     Box(
-        Modifier.width(38.dp).height(22.dp).clip(CircleShape)
+        Modifier.width(40.dp).height(24.dp).clip(CircleShape)
             .background(if (checked) scheme.primary else scheme.onBackground.copy(alpha = 0.18f))
             .clickable(role = Role.Switch) { onChange(!checked) }
             .padding(2.dp),
         contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart,
     ) {
-        Box(Modifier.size(18.dp).clip(CircleShape).background(Color.White))
+        Box(Modifier.size(20.dp).clip(CircleShape).background(Color.White))
     }
 }
 
@@ -1068,10 +1068,10 @@ private fun DesktopSourcesPage(
     }
 
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 34.dp, vertical = 10.dp)) {
-        Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().height(74.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("音源", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = scheme.onBackground)
-                Text("导入洛雪脚本、管理在线音源优先级与本地音乐", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 3.dp))
+                Text("音源", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = scheme.onBackground)
+                Text("导入洛雪脚本、管理在线音源优先级与本地音乐", fontSize = 12.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 4.dp))
             }
             SecondaryButton("从链接导入") {
                 scriptUrl = ""
@@ -1087,8 +1087,8 @@ private fun DesktopSourcesPage(
                 .clickable(role = Role.Button) { showPriority = true },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("优先音源：$preferredName", fontSize = 11.sp, color = scheme.primary, modifier = Modifier.weight(1f))
-            Text("调整", fontSize = 10.sp, color = scheme.primary)
+            Text("优先音源：$preferredName", fontSize = 12.sp, color = scheme.primary, modifier = Modifier.weight(1f))
+            Text("调整", fontSize = 11.sp, color = scheme.primary)
         }
 
         DesktopSettingSection("在线音源") {
@@ -1099,9 +1099,9 @@ private fun DesktopSourcesPage(
                 onChange = viewModel::setBuiltinEnabled,
             )
             if (loading && orderedItems.isEmpty()) {
-                Text("正在读取音源脚本…", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(vertical = 18.dp))
+                Text("正在读取音源脚本…", fontSize = 12.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(vertical = 18.dp))
             } else if (orderedItems.isEmpty()) {
-                Text("还没有导入自定义音源。点击右上角「导入脚本」选择 .js / .txt 文件。", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(vertical = 18.dp))
+                Text("还没有导入自定义音源。点击右上角「导入脚本」选择 .js / .txt 文件。", fontSize = 12.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(vertical = 18.dp))
             } else {
                 orderedItems.forEachIndexed { index, item ->
                     DesktopSourceRow(
@@ -1235,10 +1235,10 @@ private fun DesktopSourceRow(
     Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(item.name, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = scheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(item.name, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = scheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(
                     listOfNotNull(item.author?.takeIf { it.isNotBlank() }, item.version?.takeIf { it.isNotBlank() }).joinToString(" · ").ifBlank { "洛雪音源脚本" },
-                    fontSize = 10.sp,
+                    fontSize = 11.sp,
                     color = scheme.onBackgroundVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -1248,13 +1248,13 @@ private fun DesktopSourceRow(
             DesktopToggle(item.enabled, onToggle)
         }
         if (item.platforms.isNotEmpty()) {
-            Text("平台：${item.platforms.joinToString(" / ")}", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 5.dp))
+            Text("平台：${item.platforms.joinToString(" / ")}", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 5.dp))
         }
-        item.loadError?.let { Text(it, fontSize = 10.sp, color = scheme.error, modifier = Modifier.padding(top = 4.dp)) }
+        item.loadError?.let { Text(it, fontSize = 11.sp, color = scheme.error, modifier = Modifier.padding(top = 4.dp)) }
         Row(Modifier.fillMaxWidth().padding(top = 5.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 priority,
-                fontSize = 10.sp,
+                fontSize = 11.sp,
                 color = if (priority == "优先使用") scheme.primary else scheme.onBackgroundVariant,
                 modifier = Modifier.clickable(role = Role.Button, onClick = onChoose),
             )
@@ -1304,9 +1304,9 @@ private fun DesktopSidebar(
 ) {
     val scheme = MiuixTheme.colorScheme
     Column(
-        Modifier.width(224.dp).fillMaxHeight().background(scheme.surfaceContainer).padding(horizontal = 12.dp, vertical = 14.dp),
+        Modifier.width(240.dp).fillMaxHeight().background(scheme.surfaceContainer).padding(horizontal = 14.dp, vertical = 16.dp),
     ) {
-        Text("音乐库", fontSize = 12.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp))
+        Text("音乐库", fontSize = 13.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp))
         DesktopNavItem("发现音乐", TablerIcons.Compass, section == DesktopSection.DISCOVER, onDiscover)
         DesktopNavItem("我喜欢", TablerIcons.Heart, section == DesktopSection.FAVORITES, onFavorites, trail = favoriteCount.takeIf { it > 0 }?.toString())
         DesktopNavItem("已下载", TablerIcons.Download, section == DesktopSection.DOWNLOADED, onDownloaded, trail = downloadedCount.takeIf { it > 0 }?.toString())
@@ -1318,7 +1318,7 @@ private fun DesktopSidebar(
             Modifier.fillMaxWidth().padding(start = 10.dp, end = 4.dp, top = 22.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("我的歌单", fontSize = 12.sp, color = scheme.onBackgroundVariant, modifier = Modifier.weight(1f))
+            Text("我的歌单", fontSize = 13.sp, color = scheme.onBackgroundVariant, modifier = Modifier.weight(1f))
             DesktopIconButton(TablerIcons.Add, "新建歌单", 26.dp, onClick = onCreatePlaylist)
         }
         LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(1.dp)) {
@@ -1327,7 +1327,7 @@ private fun DesktopSidebar(
                 val interaction = remember { MutableInteractionSource() }
                 val hovered by interaction.collectIsHoveredAsState()
                 Row(
-                    Modifier.fillMaxWidth().height(34.dp)
+                    Modifier.fillMaxWidth().height(36.dp)
                         .clip(RoundedCornerShape(7.dp))
                         .background(if (active) scheme.primary.copy(alpha = 0.11f) else if (hovered) scheme.onBackground.copy(alpha = 0.05f) else Color.Transparent)
                         .hoverable(interaction)
@@ -1337,13 +1337,13 @@ private fun DesktopSidebar(
                 ) {
                     Text(
                         playlist.name,
-                        fontSize = 12.sp,
+                        fontSize = 13.sp,
                         color = if (active) scheme.primary else scheme.onBackground,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    Text(playlist.tracks.size.toString(), fontSize = 10.sp, color = scheme.onBackgroundVariant)
+                    Text(playlist.tracks.size.toString(), fontSize = 11.sp, color = scheme.onBackgroundVariant)
                 }
             }
         }
@@ -1351,7 +1351,9 @@ private fun DesktopSidebar(
         Spacer(Modifier.height(8.dp))
         Box(Modifier.fillMaxWidth().height(1.dp).background(scheme.onBackground.copy(alpha = 0.07f)))
         Row(Modifier.fillMaxWidth().padding(top = 10.dp, start = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("Muses $version", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(start = 2.dp), maxLines = 1)
+        Text(
+            "Muses $version", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(start = 2.dp), maxLines = 1
+        )
             Spacer(Modifier.weight(1f))
             Text("检查更新", fontSize = 10.sp, color = scheme.primary,
                 modifier = Modifier.clickable(role = Role.Button, onClick = onCheckUpdate).padding(horizontal = 4.dp, vertical = 3.dp))
@@ -1371,14 +1373,14 @@ private fun DesktopNavItem(
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     Row(
-        Modifier.fillMaxWidth().height(38.dp).clip(RoundedCornerShape(8.dp))
+        Modifier.fillMaxWidth().height(42.dp).clip(RoundedCornerShape(8.dp))
             .background(if (active) scheme.primary.copy(alpha = 0.11f) else if (hovered) scheme.onBackground.copy(alpha = 0.05f) else Color.Transparent)
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null, role = Role.Tab, onClick = onClick)
             .padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, tint = if (active) scheme.primary else scheme.onBackgroundVariant, modifier = Modifier.size(18.dp))
+        Icon(icon, null, tint = if (active) scheme.primary else scheme.onBackgroundVariant, modifier = Modifier.size(20.dp))
         Text(label, fontSize = 13.sp, fontWeight = if (active) FontWeight.Medium else FontWeight.Normal,
             color = if (active) scheme.primary else scheme.onBackground, modifier = Modifier.weight(1f).padding(start = 11.dp))
         trail?.let { Text(it, fontSize = 10.sp, color = scheme.onBackgroundVariant) }
@@ -1396,28 +1398,28 @@ private fun DesktopTopBar(
 ) {
     val scheme = MiuixTheme.colorScheme
     Row(
-        Modifier.fillMaxWidth().height(64.dp).background(scheme.background)
-            .padding(horizontal = 24.dp),
+        Modifier.fillMaxWidth().height(68.dp).background(scheme.background)
+            .padding(horizontal = 28.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        DesktopIconButton(TablerIcons.ArrowBack, "返回", 32.dp, enabled = canGoBack, onClick = onBack)
+        DesktopIconButton(TablerIcons.ArrowBack, "返回", 36.dp, enabled = canGoBack, onClick = onBack)
         Spacer(Modifier.width(4.dp))
-        DesktopIconButton(TablerIcons.ArrowForward, "前进", 32.dp, enabled = false, onClick = {})
-        Spacer(Modifier.width(22.dp))
+        DesktopIconButton(TablerIcons.ArrowForward, "前进", 36.dp, enabled = false, onClick = {})
+        Spacer(Modifier.width(24.dp))
         Row(
-            Modifier.widthIn(min = 260.dp, max = 420.dp).weight(1f).height(36.dp)
-                .clip(RoundedCornerShape(9.dp)).background(scheme.surfaceContainerHigh)
-                .padding(horizontal = 11.dp),
+            Modifier.widthIn(min = 300.dp, max = 500.dp).weight(1f).height(40.dp)
+                .clip(RoundedCornerShape(10.dp)).background(scheme.surfaceContainerHigh)
+                .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(TablerIcons.Search, null, tint = scheme.onBackgroundVariant, modifier = Modifier.size(17.dp))
+            Icon(TablerIcons.Search, null, tint = scheme.onBackgroundVariant, modifier = Modifier.size(18.dp))
             Box(Modifier.weight(1f).padding(start = 8.dp)) {
-                if (query.isEmpty()) Text("搜索歌曲、歌手、专辑", fontSize = 12.sp, color = scheme.onBackgroundVariant)
+                if (query.isEmpty()) Text("搜索歌曲、歌手、专辑", fontSize = 13.sp, color = scheme.onBackgroundVariant)
                 BasicTextField(
                     value = query,
                     onValueChange = onQueryChange,
                     singleLine = true,
-                    textStyle = TextStyle(fontSize = 12.sp, color = scheme.onBackground),
+                    textStyle = TextStyle(fontSize = 13.sp, color = scheme.onBackground),
                     cursorBrush = SolidColor(scheme.primary),
                     modifier = Modifier.fillMaxWidth().onKeyEvent { event ->
                         if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
@@ -1432,10 +1434,10 @@ private fun DesktopTopBar(
             if (query.isNotEmpty()) DesktopIconButton(TablerIcons.Close, "清空搜索", 24.dp, onClick = { onQueryChange("") })
         }
         Spacer(Modifier.weight(1f))
-        Text("$playlistCount 个歌单", fontSize = 11.sp, color = scheme.onBackgroundVariant)
+        Text("$playlistCount 个歌单", fontSize = 12.sp, color = scheme.onBackgroundVariant)
         Spacer(Modifier.width(18.dp))
-        Box(Modifier.size(30.dp).clip(CircleShape).background(scheme.primary), contentAlignment = Alignment.Center) {
-            Text("M", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = scheme.onPrimary)
+        Box(Modifier.size(34.dp).clip(CircleShape).background(scheme.primary), contentAlignment = Alignment.Center) {
+            Text("M", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = scheme.onPrimary)
         }
     }
 }
@@ -1462,40 +1464,45 @@ private fun DesktopDiscover(
     }
     val date = LocalDate.now().format(DateTimeFormatter.ofPattern("M 月 d 日"))
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().verticalScroll(scrollState).padding(start = 32.dp, end = 44.dp, top = 8.dp, bottom = 34.dp)) {
+        Column(Modifier.fillMaxSize().verticalScroll(scrollState).padding(start = 34.dp, end = 48.dp, top = 10.dp, bottom = 36.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                 Column(Modifier.weight(1f)) {
-                    Text(greeting, fontSize = 30.sp, fontWeight = FontWeight.Bold, color = scheme.onBackground)
-                    Text("为你准备今天的声音 · $date", fontSize = 12.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 5.dp))
+                    Text(greeting, fontSize = 32.sp, fontWeight = FontWeight.Bold, color = scheme.onBackground)
+                    Text("为你准备今天的声音 · $date", fontSize = 13.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 5.dp))
                 }
-                Text("${localSongs.size} 首本地音乐", fontSize = 11.sp, color = scheme.onBackgroundVariant)
+                Text("${localSongs.size} 首本地音乐", fontSize = 12.sp, color = scheme.onBackgroundVariant)
             }
 
             val hero = playlists.firstOrNull()
             val onlineHero = if (hero == null) featured.firstOrNull() else null
             Row(
-                Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 30.dp),
+                Modifier.fillMaxWidth().padding(top = 24.dp, bottom = 30.dp).clip(RoundedCornerShape(16.dp))
+                    .background(
+                        androidx.compose.ui.graphics.Brush.horizontalGradient(
+                            listOf(scheme.primary.copy(alpha = 0.10f), scheme.surfaceContainer),
+                        ),
+                    )
+                    .padding(22.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 MusesCover(
                     uri = hero?.tracks?.firstOrNull { !it.coverUri.isNullOrBlank() }?.coverUri ?: onlineHero?.coverUrl,
-                    size = 132.dp,
+                    size = 144.dp,
                     radius = MusesCoverRadius.MD,
                 )
-                Column(Modifier.padding(start = 20.dp).weight(1f)) {
-                    Text(if (onlineHero != null) "今日推荐" else "继续聆听", fontSize = 11.sp, color = scheme.primary, fontWeight = FontWeight.Medium)
-                    Text(hero?.name ?: onlineHero?.title ?: "从第一张歌单开始", fontSize = 25.sp, fontWeight = FontWeight.Bold,
-                        color = scheme.onBackground, modifier = Modifier.padding(top = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Column(Modifier.padding(start = 22.dp).weight(1f)) {
+                    Text(if (onlineHero != null) "今日推荐" else "继续聆听", fontSize = 12.sp, color = scheme.primary, fontWeight = FontWeight.Medium)
+                    Text(hero?.name ?: onlineHero?.title ?: "从第一张歌单开始", fontSize = 28.sp, fontWeight = FontWeight.Bold,
+                        color = scheme.onBackground, modifier = Modifier.padding(top = 5.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         when {
                             hero != null -> "${hero.tracks.size} 首 · 保存在本机"
                             onlineHero != null -> "${onlineHero.trackCount ?: 0} 首 · 来自网易云音乐"
                             else -> "建立你的桌面音乐库"
                         },
-                        fontSize = 12.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 4.dp),
+                        fontSize = 13.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 5.dp),
                     )
-                    Row(Modifier.padding(top = 15.dp), verticalAlignment = Alignment.CenterVertically) {
-                        PrimaryButton(
+                    Row(Modifier.padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {                        PrimaryButton(
                             when {
                                 onlineHero != null -> "打开推荐"
                                 hero != null -> "打开歌单"
@@ -1518,24 +1525,30 @@ private fun DesktopDiscover(
 
             if (playlists.isNotEmpty()) {
                 SectionHeader("我的歌单", "${playlists.size} 个")
-                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    playlists.chunked(4).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                    playlists.chunked(5).forEach { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(18.dp),
+                        ) {
                             row.forEach { playlist ->
                                 PlaylistCard(playlist, onOpenPlaylist, Modifier.weight(1f))
                             }
-                            repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+                            repeat(5 - row.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
                 }
             }
 
             if (featured.isNotEmpty()) {
-                Spacer(Modifier.height(30.dp))
+                Spacer(Modifier.height(34.dp))
                 SectionHeader("在线推荐", "来自网易云")
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
                     featured.take(10).chunked(5).forEach { row ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(18.dp),
+                        ) {
                             row.forEach { item -> OnlineCard(item, { onOnline(item) }, Modifier.weight(1f)) }
                             repeat(5 - row.size) { Spacer(Modifier.weight(1f)) }
                         }
@@ -1544,7 +1557,7 @@ private fun DesktopDiscover(
             }
 
             if (charts.isNotEmpty()) {
-                Spacer(Modifier.height(30.dp))
+                Spacer(Modifier.height(34.dp))
                 SectionHeader("排行榜", "网易云")
                 Column(Modifier.fillMaxWidth()) {
                     charts.take(4).forEachIndexed { index, chart ->
@@ -1573,9 +1586,9 @@ private fun SquareCover(uri: String?) {
 @Composable
 private fun SectionHeader(title: String, trail: String? = null) {
     val scheme = MiuixTheme.colorScheme
-    Row(Modifier.fillMaxWidth().height(42.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = scheme.onBackground, modifier = Modifier.weight(1f))
-        trail?.let { Text(it, fontSize = 11.sp, color = scheme.onBackgroundVariant) }
+    Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = scheme.onBackground, modifier = Modifier.weight(1f))
+        trail?.let { Text(it, fontSize = 12.sp, color = scheme.onBackgroundVariant) }
     }
 }
 
@@ -1593,12 +1606,12 @@ private fun PlaylistCard(
             .background(if (hovered) scheme.surfaceContainerHigh else Color.Transparent)
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null) { onOpen(playlist.id) }
-            .padding(8.dp),
+            .padding(10.dp),
     ) {
         SquareCover(playlist.tracks.firstOrNull { !it.coverUri.isNullOrBlank() }?.coverUri)
-        Text(playlist.name, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = scheme.onBackground,
-            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 9.dp))
-        Text("${playlist.tracks.size} 首", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 2.dp))
+        Text(playlist.name, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = scheme.onBackground,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 10.dp))
+        Text("${playlist.tracks.size} 首", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 3.dp))
     }
 }
 
@@ -1612,12 +1625,12 @@ private fun OnlineCard(item: OnlinePlaylist, onClick: () -> Unit, modifier: Modi
             .background(if (hovered) scheme.surfaceContainerHigh else Color.Transparent)
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(8.dp),
+            .padding(10.dp),
     ) {
         SquareCover(item.coverUrl)
-        Text(item.title, fontSize = 12.sp, color = scheme.onBackground, maxLines = 2, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 8.dp))
-        item.trackCount?.let { Text("$it 首", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 2.dp)) }
+        Text(item.title, fontSize = 13.sp, color = scheme.onBackground, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(top = 9.dp))
+        item.trackCount?.let { Text("$it 首", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 3.dp)) }
     }
 }
 
@@ -1627,20 +1640,20 @@ private fun ChartRow(index: Int, chart: OnlineChart, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     Row(
-        Modifier.fillMaxWidth().height(58.dp).clip(RoundedCornerShape(7.dp))
+        Modifier.fillMaxWidth().height(66.dp).clip(RoundedCornerShape(7.dp))
             .background(if (hovered) scheme.surfaceContainerHigh else Color.Transparent)
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("${index + 1}", fontSize = 12.sp, color = if (index < 3) scheme.primary else scheme.onBackgroundVariant, modifier = Modifier.width(22.dp))
-        MusesCover(chart.coverUrl, size = 40.dp, radius = MusesCoverRadius.SM)
-        Column(Modifier.padding(start = 11.dp).weight(1f)) {
-            Text(chart.name, fontSize = 13.sp, color = scheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            chart.updateInfo?.let { Text(it, fontSize = 10.sp, color = scheme.onBackgroundVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+        Text("${index + 1}", fontSize = 12.sp, color = if (index < 3) scheme.primary else scheme.onBackgroundVariant, modifier = Modifier.width(24.dp))
+        MusesCover(chart.coverUrl, size = 44.dp, radius = MusesCoverRadius.SM)
+        Column(Modifier.padding(start = 12.dp).weight(1f)) {
+            Text(chart.name, fontSize = 14.sp, color = scheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            chart.updateInfo?.let { Text(it, fontSize = 11.sp, color = scheme.onBackgroundVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
         }
-        Icon(TablerIcons.Play, null, tint = scheme.onBackgroundVariant, modifier = Modifier.size(17.dp))
+        Icon(TablerIcons.Play, null, tint = scheme.onBackgroundVariant, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -1652,9 +1665,9 @@ private fun DesktopPlaylistGrid(
     onImport: () -> Unit,
 ) {
     val scheme = MiuixTheme.colorScheme
-    Column(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 12.dp)) {
-        Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("我的歌单", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = scheme.onBackground, modifier = Modifier.weight(1f))
+    Column(Modifier.fillMaxSize().padding(horizontal = 34.dp, vertical = 14.dp)) {
+        Row(Modifier.fillMaxWidth().height(64.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("我的歌单", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = scheme.onBackground, modifier = Modifier.weight(1f))
             SecondaryButton("导入歌单", onImport)
             Spacer(Modifier.width(8.dp))
             PrimaryButton("新建歌单", onCreate)
@@ -1662,11 +1675,11 @@ private fun DesktopPlaylistGrid(
         if (playlists.isEmpty()) {
             EmptyPrompt("还没有自建歌单，点击右上角新建，或从网易云 / QQ 音乐导入。")
         } else {
-            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                items(playlists.chunked(4)) { row ->
+            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                items(playlists.chunked(5)) { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.fillMaxWidth()) {
                         row.forEach { PlaylistCard(it, onOpen, Modifier.weight(1f)) }
-                        repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+                        repeat(5 - row.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
             }
@@ -1681,7 +1694,7 @@ private fun EmptyPrompt(message: String, action: String? = null, onClick: (() ->
         Modifier.fillMaxWidth().padding(vertical = 18.dp),
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {
-        Text(message, fontSize = 12.sp, color = scheme.onBackgroundVariant, modifier = Modifier.weight(1f))
+        Text(message, fontSize = 13.sp, color = scheme.onBackgroundVariant, modifier = Modifier.weight(1f))
         if (action != null && onClick != null) SecondaryButton(action, onClick)
     }
 }
@@ -1690,20 +1703,20 @@ private fun EmptyPrompt(message: String, action: String? = null, onClick: (() ->
 private fun PrimaryButton(text: String, onClick: () -> Unit) {
     val scheme = MiuixTheme.colorScheme
     Box(
-        Modifier.height(34.dp).clip(RoundedCornerShape(7.dp)).background(scheme.primary)
-            .clickable(role = Role.Button, onClick = onClick).padding(horizontal = 18.dp),
+        Modifier.height(38.dp).clip(RoundedCornerShape(8.dp)).background(scheme.primary)
+            .clickable(role = Role.Button, onClick = onClick).padding(horizontal = 20.dp),
         contentAlignment = Alignment.Center,
-    ) { Text(text, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = scheme.onPrimary) }
+    ) { Text(text, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = scheme.onPrimary) }
 }
 
 @Composable
 private fun SecondaryButton(text: String, onClick: () -> Unit) {
     val scheme = MiuixTheme.colorScheme
     Box(
-        Modifier.height(34.dp).clip(RoundedCornerShape(7.dp)).background(scheme.surfaceContainerHigh)
-            .clickable(role = Role.Button, onClick = onClick).padding(horizontal = 16.dp),
+        Modifier.height(38.dp).clip(RoundedCornerShape(8.dp)).background(scheme.surfaceContainerHigh)
+            .clickable(role = Role.Button, onClick = onClick).padding(horizontal = 18.dp),
         contentAlignment = Alignment.Center,
-    ) { Text(text, fontSize = 12.sp, color = scheme.onBackground) }
+    ) { Text(text, fontSize = 13.sp, color = scheme.onBackground) }
 }
 
 @Composable
@@ -1740,20 +1753,20 @@ private fun DesktopPlaylistDetail(
 ) {
     val scheme = MiuixTheme.colorScheme
     val filtered = tracks.filterByQuery(query)
-    Column(Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 8.dp)) {
-        Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 34.dp, vertical = 10.dp)) {
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
             MusesCover(
                 uri = tracks.firstOrNull { !it.coverUri.isNullOrBlank() }?.coverUri,
-                size = 104.dp,
+                size = 120.dp,
                 radius = MusesCoverRadius.MD,
             )
-            Column(Modifier.padding(start = 18.dp).weight(1f)) {
-                Text(playlistName, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = scheme.onBackground,
+            Column(Modifier.padding(start = 22.dp).weight(1f)) {
+                Text(playlistName, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = scheme.onBackground,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("${tracks.size} 首 · 保存在本机", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 3.dp))
-                Row(Modifier.padding(top = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("${tracks.size} 首 · 保存在本机", fontSize = 12.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 4.dp))
+                Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     PrimaryButton("播放全部", onPlayAll)
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(10.dp))
                     SecondaryButton("返回歌单", onBack)
                 }
             }
@@ -1778,26 +1791,26 @@ private fun DesktopOnlineDetail(
     onBack: () -> Unit,
 ) {
     val scheme = MiuixTheme.colorScheme
-    Column(Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 8.dp)) {
-        Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 34.dp, vertical = 10.dp)) {
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 18.dp), verticalAlignment = Alignment.CenterVertically) {
             MusesCover(
                 uri = tracks.firstOrNull { !it.coverUri.isNullOrBlank() }?.coverUri,
-                size = 104.dp,
+                size = 120.dp,
                 radius = MusesCoverRadius.MD,
             )
-            Column(Modifier.padding(start = 18.dp).weight(1f)) {
+            Column(Modifier.padding(start = 22.dp).weight(1f)) {
                 Text(
                     if (loading && tracks.isEmpty()) "正在读取在线歌单…" else title,
-                    fontSize = 26.sp,
+                    fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                     color = scheme.onBackground,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Text("${tracks.size} 首 · 来自网易云音乐", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 3.dp))
-                Row(Modifier.padding(top = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("${tracks.size} 首 · 来自网易云音乐", fontSize = 12.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 4.dp))
+                Row(Modifier.padding(top = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                     PrimaryButton("播放全部", onPlayAll)
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(10.dp))
                     SecondaryButton("返回发现", onBack)
                 }
             }
@@ -1832,11 +1845,11 @@ private fun DesktopSongPage(
     onRemoveDownload: (String) -> Unit = {},
 ) {
     val scheme = MiuixTheme.colorScheme
-    Column(Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 8.dp)) {
-        Row(Modifier.fillMaxWidth().height(66.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 34.dp, vertical = 10.dp)) {
+        Row(Modifier.fillMaxWidth().height(74.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(title, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = scheme.onBackground)
-                Text(subtitle, fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 3.dp))
+                Text(title, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = scheme.onBackground)
+                Text(subtitle, fontSize = 12.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 4.dp))
             }
             if (songs.isNotEmpty()) PrimaryButton("播放全部", onPlayAll)
             if (onImportFolder != null) {
@@ -1924,24 +1937,24 @@ private fun DesktopSearchPage(
     onPlay: (Song) -> Unit,
 ) {
     val scheme = MiuixTheme.colorScheme
-    Column(Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 8.dp)) {
-        Column(Modifier.fillMaxWidth().height(66.dp), verticalArrangement = Arrangement.Center) {
-            Text("搜索结果", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = scheme.onBackground)
-            Text("“$keyword” · ${songs.size} 个结果", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 3.dp))
+    Column(Modifier.fillMaxSize().padding(horizontal = 34.dp, vertical = 10.dp)) {
+        Column(Modifier.fillMaxWidth().height(74.dp), verticalArrangement = Arrangement.Center) {
+            Text("搜索结果", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = scheme.onBackground)
+            Text("“$keyword” · ${songs.size} 个结果", fontSize = 12.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 4.dp))
         }
         if (recentSearches.isNotEmpty()) {
             Row(Modifier.fillMaxWidth().padding(bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("最近搜索", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(end = 8.dp))
+                Text("最近搜索", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(end = 8.dp))
                 recentSearches.take(6).forEach { word ->
                     Box(
-                        Modifier.padding(end = 6.dp).widthIn(max = 140.dp).clip(RoundedCornerShape(5.dp))
+                        Modifier.padding(end = 6.dp).widthIn(max = 150.dp).clip(RoundedCornerShape(6.dp))
                             .background(scheme.surfaceContainerHigh)
                             .clickable(role = Role.Button) { onRecent(word) }
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                    ) { Text(word, fontSize = 10.sp, color = scheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            .padding(horizontal = 9.dp, vertical = 5.dp),
+                    ) { Text(word, fontSize = 11.sp, color = scheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 }
                 Spacer(Modifier.weight(1f))
-                Text("清除", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.clickable(role = Role.Button, onClick = onClearHistory))
+                Text("清除", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.clickable(role = Role.Button, onClick = onClearHistory))
             }
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(scheme.onBackground.copy(alpha = 0.08f)))
@@ -1973,21 +1986,21 @@ private fun TrackTable(
     val listState = rememberLazyListState()
     Column(modifier.fillMaxWidth()) {
         Row(
-            Modifier.fillMaxWidth().height(34.dp).padding(horizontal = 8.dp),
+            Modifier.fillMaxWidth().height(40.dp).padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("#", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.width(34.dp))
-            Text("标题", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.weight(2.4f))
-            Text("歌手", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.weight(1.2f))
-            Text("专辑", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.weight(1.5f))
-            Text("音质", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.width(62.dp))
-            Text("时长", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.width(56.dp))
-            Spacer(Modifier.width(30.dp))
+            Text("#", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.width(38.dp))
+            Text("标题", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.weight(2.6f))
+            Text("歌手", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.weight(1.3f))
+            Text("专辑", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.weight(1.7f))
+            Text("音质", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.width(68.dp))
+            Text("时长", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.width(58.dp))
+            Spacer(Modifier.width(34.dp))
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(scheme.onBackground.copy(alpha = 0.07f)))
         if (songs.isEmpty()) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(emptyText, fontSize = 12.sp, color = scheme.onBackgroundVariant)
+                Text(emptyText, fontSize = 13.sp, color = scheme.onBackgroundVariant)
             }
         } else {
             Box(Modifier.fillMaxSize()) {
@@ -2013,26 +2026,26 @@ private fun TrackRow(index: Int, song: Song, onPlay: (Song) -> Unit) {
     val hovered by interaction.collectIsHoveredAsState()
     var menuOpen by remember { mutableStateOf(false) }
     Row(
-        Modifier.fillMaxWidth().height(46.dp)
+        Modifier.fillMaxWidth().height(60.dp)
             .background(if (hovered) scheme.surfaceContainerHigh else Color.Transparent)
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null, role = Role.Button) { onPlay(song) }
-            .padding(horizontal = 8.dp),
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text("${index + 1}", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.width(34.dp))
-        Row(Modifier.weight(2.4f), verticalAlignment = Alignment.CenterVertically) {
-            MusesCover(song.coverUri, size = 30.dp, radius = MusesCoverRadius.SM)
-            Column(Modifier.padding(start = 9.dp)) {
-                Text(song.title, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = scheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text("${index + 1}", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.width(38.dp))
+        Row(Modifier.weight(2.6f), verticalAlignment = Alignment.CenterVertically) {
+            MusesCover(song.coverUri, size = 40.dp, radius = MusesCoverRadius.SM)
+            Column(Modifier.padding(start = 11.dp)) {
+                Text(song.title, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = scheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        Text(song.artist ?: "—", fontSize = 11.sp, color = scheme.onBackgroundVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1.2f))
-        Text(song.album ?: "—", fontSize = 11.sp, color = scheme.onBackgroundVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1.5f))
-        Text(song.audioQuality ?: "—", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.width(62.dp))
-        Text(formatDuration(song.durationMs), fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.width(56.dp))
+        Text(song.artist ?: "—", fontSize = 12.sp, color = scheme.onBackgroundVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1.3f))
+        Text(song.album ?: "—", fontSize = 12.sp, color = scheme.onBackgroundVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1.7f))
+        Text(song.audioQuality ?: "—", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.width(68.dp))
+        Text(formatDuration(song.durationMs), fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.width(58.dp))
         Box {
-            DesktopIconButton(TablerIcons.MoreHorizontal, "更多操作", 26.dp) { menuOpen = true }
+            DesktopIconButton(TablerIcons.MoreHorizontal, "更多操作", 28.dp) { menuOpen = true }
             if (menuOpen) {
                 Popup(
                     alignment = Alignment.TopEnd,
@@ -2040,8 +2053,8 @@ private fun TrackRow(index: Int, song: Song, onPlay: (Song) -> Unit) {
                     properties = PopupProperties(focusable = true),
                 ) {
                     Column(
-                        Modifier.width(176.dp).clip(RoundedCornerShape(9.dp))
-                            .background(scheme.surface).padding(5.dp),
+                        Modifier.width(190.dp).clip(RoundedCornerShape(9.dp))
+                            .background(scheme.surface).padding(6.dp),
                     ) {
                         SongMenuAction("添加到播放队列") {
                             menuOpen = false
@@ -2070,14 +2083,14 @@ private fun SongMenuAction(text: String, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     Box(
-        Modifier.fillMaxWidth().height(34.dp).clip(RoundedCornerShape(6.dp))
+        Modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(6.dp))
             .background(if (hovered) scheme.surfaceContainerHigh else Color.Transparent)
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .padding(horizontal = 10.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
-        Text(text, fontSize = 11.sp, color = scheme.onBackground)
+        Text(text, fontSize = 12.sp, color = scheme.onBackground)
     }
 }
 

@@ -77,34 +77,34 @@ fun DesktopPlayerBar(
     val positionFraction = (position.toFloat() / effectiveDuration).coerceIn(0f, 1f)
     val liked = song != null && isLiked(song)
 
-    Column(Modifier.fillMaxWidth().height(88.dp).background(scheme.surface)) {
+    Column(Modifier.fillMaxWidth().height(96.dp).background(scheme.surface)) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(scheme.onBackground.copy(alpha = 0.07f)))
-        Row(Modifier.fillMaxSize().padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.width(300.dp), verticalAlignment = Alignment.CenterVertically) {
-                MusesCover(cover, size = 52.dp, radius = MusesCoverRadius.MD)
-                Column(Modifier.padding(start = 11.dp).weight(1f)) {
-                    Text(title, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = scheme.onBackground,
+        Row(Modifier.fillMaxSize().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.width(340.dp), verticalAlignment = Alignment.CenterVertically) {
+                MusesCover(cover, size = 58.dp, radius = MusesCoverRadius.MD)
+                Column(Modifier.padding(start = 13.dp).weight(1f)) {
+                    Text(title, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = scheme.onBackground,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         playbackError ?: artist,
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
                         color = if (playbackError != null) scheme.error else scheme.onBackgroundVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 2.dp),
+                        modifier = Modifier.padding(top = 3.dp),
                     )
                 }
                 PlayerIconButton(
                     if (liked) TablerIcons.HeartFill else TablerIcons.Heart,
                     if (liked) "取消喜欢" else "喜欢",
-                    26.dp,
+                    28.dp,
                     enabled = hasSong,
                     tint = if (liked) scheme.primary else null,
                 ) { song?.let(onToggleLike) }
             }
 
-            Column(Modifier.weight(1f).padding(horizontal = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f).padding(horizontal = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     PlayerIconButton(
                         when {
                             mode == PlaybackMode.SHUFFLE -> TablerIcons.Shuffle
@@ -113,7 +113,7 @@ fun DesktopPlayerBar(
                             else -> TablerIcons.Repeat
                         },
                         "播放模式：${mode.label}",
-                        24.dp,
+                        26.dp,
                         enabled = hasSong,
                         tint = if (mode == PlaybackMode.SEQUENTIAL || mode == PlaybackMode.SHUFFLE) scheme.onBackgroundVariant else scheme.primary,
                     ) {
@@ -124,43 +124,43 @@ fun DesktopPlayerBar(
                             PlaybackMode.SHUFFLE -> { hook.setRepeatMode(RepeatMode.NONE); hook.setShuffleEnabled(false) }
                         }
                     }
-                    PlayerIconButton(TablerIcons.SkipPreviousFill, "上一曲", 28.dp, enabled = hasSong) { hook.previous() }
+                    PlayerIconButton(TablerIcons.SkipPreviousFill, "上一曲", 30.dp, enabled = hasSong) { hook.previous() }
                     Box(
-                        Modifier.size(38.dp).clip(CircleShape)
+                        Modifier.size(42.dp).clip(CircleShape)
                             .background(if (hasSong) scheme.onBackground else scheme.onBackground.copy(alpha = 0.25f))
                             .clickable(enabled = hasSong, role = Role.Button) { hook.togglePlayPause() },
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(if (isPlaying) TablerIcons.PauseFill else TablerIcons.PlayFill, if (isPlaying) "暂停" else "播放",
-                            tint = scheme.surface, modifier = Modifier.size(18.dp))
+                            tint = scheme.surface, modifier = Modifier.size(20.dp))
                     }
-                    PlayerIconButton(TablerIcons.SkipNextFill, "下一曲", 28.dp, enabled = hasSong) { hook.next() }
+                    PlayerIconButton(TablerIcons.SkipNextFill, "下一曲", 30.dp, enabled = hasSong) { hook.next() }
                     Spacer(Modifier.width(10.dp))
                 }
-                Row(Modifier.fillMaxWidth().padding(top = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(formatPlaybackTime(position), fontSize = 9.sp, color = scheme.onBackgroundVariant, modifier = Modifier.width(34.dp))
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(formatPlaybackTime(position), fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.width(36.dp))
                     SeekBar(
                         fraction = positionFraction,
                         modifier = Modifier.weight(1f),
                         onSeek = { if (hasSong) hook.seekTo((it * duration).toLong()) },
                     )
-                    Text(formatPlaybackTime(duration), fontSize = 9.sp, color = scheme.onBackgroundVariant, modifier = Modifier.width(34.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End)
+                    Text(formatPlaybackTime(duration), fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.width(36.dp), textAlign = androidx.compose.ui.text.style.TextAlign.End)
                 }
             }
 
-            Row(Modifier.width(250.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
+            Row(Modifier.width(280.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
                 val volumeInteraction = remember { MutableInteractionSource() }
-                Icon(Tabler.Outline.Volume, "音量", tint = scheme.onBackgroundVariant, modifier = Modifier.size(17.dp))
+                Icon(Tabler.Outline.Volume, "音量", tint = scheme.onBackgroundVariant, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
                 SeekBar(
                     fraction = (volume / 100f).coerceIn(0f, 1f),
-                    modifier = Modifier.width(72.dp),
+                    modifier = Modifier.width(80.dp),
                     onSeek = { hook.setVolume((it * 100).toInt()) },
                 )
-                Spacer(Modifier.width(16.dp))
+                Spacer(Modifier.width(18.dp))
                 Text(
                     if (song?.audioQuality.isNullOrBlank()) "标准" else song.audioQuality!!,
-                    fontSize = 9.sp,
+                    fontSize = 10.sp,
                     color = scheme.onBackgroundVariant,
                     modifier = Modifier.clip(RoundedCornerShape(3.dp)).background(scheme.surfaceContainerHigh).padding(horizontal = 5.dp, vertical = 2.dp),
                 )
@@ -168,13 +168,13 @@ fun DesktopPlayerBar(
                 PlayerIconButton(
                     TablerIcons.QueueMusic,
                     "播放队列",
-                    26.dp,
+                    28.dp,
                     tint = if (panel == DesktopPlayerPanel.QUEUE) scheme.primary else null,
                 ) { onPanelChange(DesktopPlayerPanel.QUEUE) }
                 PlayerIconButton(
                     TablerIcons.MusicNote,
                     "歌词",
-                    26.dp,
+                    28.dp,
                     tint = if (panel == DesktopPlayerPanel.LYRICS) scheme.primary else null,
                 ) { onPanelChange(DesktopPlayerPanel.LYRICS) }
             }
