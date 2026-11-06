@@ -120,6 +120,25 @@ internal class AndroidUpdateManager private constructor(private val context: Con
         cancelLocked(); prefs.edit().putString("ignored", version).apply()
         change { it.copy(ignored = version, status = "已忽略此版本，可手动下载") }
     }
+
+    fun restoreIgnore() = action {
+        prefs.edit().remove("ignored").apply()
+        change { it.copy(ignored = null, status = "已恢复新版本提醒") }
+    }
+
+    /** 启动提示的节流：同一版本一天最多主动弹一次；忽略过的版本、已下载待安装的不弹。 */
+    fun promptDue(): Boolean {
+        val release = state.value.release ?: return false
+        if (!newer(release) || state.value.ready) return false
+        if (state.value.ignored == release.versionName) return false
+        if (prefs.getString("prompted_version", null) != release.versionName) return true
+        return System.currentTimeMillis() - prefs.getLong("prompted_at", 0) > 86_399_999L
+    }
+
+    fun markPrompted() {
+        prefs.edit().putString("prompted_version", state.value.release?.versionName)
+            .putLong("prompted_at", System.currentTimeMillis()).apply()
+    }
     fun refresh() = action(UpdateWork.VERIFY, refreshGate) { refreshLocked() }
     suspend fun completed() { mutex.withLock {
         try { refreshLocked() } catch (e: Exception) { change { it.failed(UpdateWork.VERIFY, e.message ?: "更新校验失败") } }

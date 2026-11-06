@@ -26,7 +26,7 @@ import java.util.Locale
 
 internal data class UpdatePageActions(val check: () -> Unit, val download: () -> Unit, val cancel: () -> Unit,
     val install: () -> Unit, val ignore: () -> Unit, val setAutoCheck: (Boolean) -> Unit, val setWifiDownload: (Boolean) -> Unit,
-    val redownload: () -> Unit = {})
+    val redownload: () -> Unit = {}, val restore: () -> Unit = {})
 
 @Composable
 internal fun UpdateDetailsPage(versionName: String, state: AndroidUpdateState, newer: Boolean,
@@ -122,6 +122,7 @@ internal fun UpdateDetailsPage(versionName: String, state: AndroidUpdateState, n
             UpdateMenuRow(TablerIcons.Share, "网页下载") { more = false; onOpenUrl(release?.pageUrl ?: "$DOMESTIC_UPDATE_ORIGIN/") }
             if (release != null) {
                 if (newer) UpdateMenuRow(TablerIcons.Close, "忽略本版提醒") { more = false; actions.ignore() }
+                if (newer && state.ignored == release.versionName) UpdateMenuRow(TablerIcons.Refresh, "恢复新版本提醒") { more = false; actions.restore() }
                 if (state.ready) UpdateMenuRow(TablerIcons.Download, "重新下载安装包") { more = false; actions.redownload() }
             }
         }

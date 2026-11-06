@@ -32,12 +32,16 @@ import com.muses.player.core.data.repository.SongRepository
 import com.muses.player.core.data.tag.AudioTagReader
 import com.muses.player.core.lyrics.matchDocument
 import com.muses.player.core.media.scanner.LocalLibraryScanner
+import com.muses.player.core.platform.DesktopLyricsGate
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runBlocking
@@ -411,6 +415,22 @@ class PlaybackService : MediaSessionService() {
             onColor = { color -> serviceScope.launch { settingsRepository.setDesktopLyricsColor(color) } },
             onFontSize = { size -> serviceScope.launch { settingsRepository.setDesktopLyricsFontSize(size.toLong()) } })
         desktopLyricsOverlay = overlay
+        // 权限兜底：1) 用户在系统授权页给了悬浮窗权限后自动补开（不需要再回设置点一次）；
+        // 2) 权限被系统撤销时把开关落回关闭，避免歌词静默消失、用户以为功能坏了。
+        serviceScope.launch {
+            while (isActive) {
+                val granted = DesktopLyricsGate.canOverlay(this@PlaybackService)
+                if (granted) {
+                    if (DesktopLyricsGate.pending(this@PlaybackService)) {
+                        DesktopLyricsGate.clearPending(this@PlaybackService)
+                        settingsRepository.setDesktopLyricsEnabled(true)
+                    }
+                } else if (settingsRepository.desktopLyricsEnabled.first()) {
+                    settingsRepository.setDesktopLyricsEnabled(false)
+                }
+                delay(if (DesktopLyricsGate.pending(this@PlaybackService)) 700L else 5_000L)
+            }
+        }
         serviceScope.launch {
             var enabled = false
             var translation = true

@@ -461,10 +461,11 @@ fun MusesApp(openSettingsRequest: Long = 0L) {
 
 @Composable
 private fun MusesAppContent(openSettingsRequest: Long) {
-    com.muses.player.feature.shell.platform.AppUpdateHost()
         // miuix-nav 返回栈（类型化路由，存栈恢复经 kotlinx.serialization；替代 CMP Navigation）
         // 启动落地首页（探索 = 排行榜 + 猜你喜欢）
         val backStack = rememberNavBackStack<MusesRoute>(MusesRoute.Tabs)
+        // 更新宿主：前台刷新下载进度 + “发现新版本”的一次性提示；弹层里的“查看更新”直接进更新页。
+        com.muses.player.feature.shell.platform.AppUpdateHost { backStack.pushUnique(MusesRoute.AppUpdate) }
         val tabPager = rememberPagerState(pageCount = { 3 })
         val tabStateHolder = rememberSaveableStateHolder()
         val tabScope = rememberCoroutineScope()

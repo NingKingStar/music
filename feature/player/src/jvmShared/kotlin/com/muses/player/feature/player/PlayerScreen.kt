@@ -1222,6 +1222,7 @@ private fun TabletBottomBar(
                 gap = (screenWidth * 0.05f).coerceIn(20.dp, 44.dp),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                com.muses.player.feature.player.lyric.DesktopLyricsActionButton(contentColor.copy(alpha = 0.8f))
                 MusesIconButton(onClick = onOpenQueue, imageVector = TablerIcons.QueueMusic, contentDescription = "播放队列", tint = contentColor.copy(alpha = 0.8f))
                 MusesIconButton(onClick = onOpenEditMeta, imageVector = TablerIcons.MoreHorizontal, contentDescription = "更多", tint = contentColor.copy(alpha = 0.8f))
             }

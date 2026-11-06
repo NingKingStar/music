@@ -221,7 +221,7 @@ actual fun InAppUpdateSection(
 }
 
 @Composable
-actual fun AppUpdateHost() {}
+actual fun AppUpdateHost(onOpenUpdate: () -> Unit) {}
 
 @Composable
 actual fun appUpdateHint(): String? = null

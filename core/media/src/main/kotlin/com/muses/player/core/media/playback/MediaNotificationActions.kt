@@ -2,7 +2,6 @@ package com.muses.player.core.media.playback
 
 import android.content.Context
 import android.os.Bundle
-import android.provider.Settings
 import android.widget.Toast
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -19,6 +18,7 @@ import com.muses.player.core.data.repository.SongRepository
 import com.muses.player.core.media.R
 import com.muses.player.core.model.Song
 import com.muses.player.core.model.online.OnlineTrackSession
+import com.muses.player.core.platform.DesktopLyricsGate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.combine
@@ -83,7 +83,8 @@ internal class MediaNotificationActions(
                         .setCustomIconResId(if (lyrics) R.drawable.ic_notification_lyrics_on else R.drawable.ic_notification_lyrics)
                         .setDisplayName(if (lyrics) "关闭桌面歌词" else "开启桌面歌词")
                         .setSessionCommand(lyricsCommand)
-                        .setSlots(CommandButton.SLOT_OVERFLOW).build(),
+                        // 桌面歌词以前只挂在通知溢出菜单里，等于藏起来；放到可见的次级位。
+                        .setSlots(CommandButton.SLOT_FORWARD_SECONDARY).build(),
                 )
             }.collect { session.setMediaButtonPreferences(it) }
         }
@@ -105,10 +106,18 @@ internal class MediaNotificationActions(
                 val code = toggleMutex.withLock {
                     if (customCommand.customAction == ACTION_LYRICS) {
                         val enabled = settings.desktopLyricsEnabled.first()
-                        if (!enabled && !Settings.canDrawOverlays(context)) {
-                            showMessage("请先在设置中允许悬浮窗权限，再开启桌面歌词")
+                        if (!enabled && !DesktopLyricsGate.canOverlay(context)) {
+                            // 没授权就直接把系统授权页拉起来，授权返回后由播放服务自动补开。
+                            DesktopLyricsGate.markPending(context)
+                            if (DesktopLyricsGate.openPermissionPage(context)) {
+                                showMessage("请允许「显示在其他应用上层」，返回后会自动开启桌面歌词")
+                            } else {
+                                DesktopLyricsGate.clearPending(context)
+                                showMessage("无法打开悬浮窗授权页，请在系统设置中允许显示在其他应用上层")
+                            }
                             SessionResult.RESULT_ERROR_PERMISSION_DENIED
                         } else {
+                            if (enabled) DesktopLyricsGate.clearPending(context)
                             settings.setDesktopLyricsEnabled(!enabled)
                             SessionResult.RESULT_SUCCESS
                         }
