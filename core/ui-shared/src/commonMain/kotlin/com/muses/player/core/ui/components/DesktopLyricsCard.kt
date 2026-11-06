@@ -1,9 +1,11 @@
 package com.muses.player.core.ui.components
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -12,7 +14,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -22,15 +26,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextStyle
@@ -43,7 +51,7 @@ import androidx.compose.ui.unit.sp
 import com.muses.player.core.model.lyrics.DesktopLyricsWord
 import com.muses.player.core.ui.icons.TablerIcons
 import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /**
@@ -61,7 +69,7 @@ fun DesktopLyricsCard(primary: String, secondary: String?, onClose: () -> Unit, 
     title: String = "Muses", fontSize: Int = 22, selectedColor: Color? = null,
     onPrevious: () -> Unit = {}, onPlayPause: () -> Unit = {}, onNext: () -> Unit = {},
     onColor: (Long) -> Unit = {}, onFontSize: (Int) -> Unit = {},
-    onContentHeightChanged: (Int) -> Unit = {}, onEditingStyleChanged: (Boolean) -> Unit = {}) {
+    onContentHeightChanged: (Int) -> Unit = {}, onEditingStyleChanged: (Boolean) -> Unit = {}, showStyleControls: Boolean = true) {
     val shadow = Shadow(Color.Black.copy(alpha = 0.55f), Offset(0f, 0.75f), 3f)
     val vivid = selectedColor ?: accentColor?.let(::vividLyricColor)
     val interaction = remember { MutableInteractionSource() }
@@ -86,61 +94,84 @@ fun DesktopLyricsCard(primary: String, secondary: String?, onClose: () -> Unit, 
             }
         }
         if (controlsVisible) {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.fillMaxWidth().padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        MarqueeText(title, modifier = Modifier.weight(1f).padding(start = 8.dp),
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        MusesIconButton(onClick = onClose, imageVector = TablerIcons.Close,
-                            contentDescription = "关闭桌面歌词", size = MusesIconButtonSize.SM)
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
+            // 悬浮操作条：只留最常按的播放控制与锁定/关闭，样式调节归到歌词显示弹层。
+            Row(Modifier.wrapContentWidth().clip(RoundedCornerShape(20.dp))
+                .background(Color.Black.copy(alpha = 0.52f))
+                .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(20.dp))
+                .padding(horizontal = 5.dp, vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(1.dp)) {
+                OverlayGlyph(TablerIcons.SkipPreviousFill, "上一首", onClick = onPrevious)
+                OverlayGlyph(if (isPlaying) TablerIcons.PauseFill else TablerIcons.PlayFill,
+                    if (isPlaying) "暂停" else "播放", emphasized = true, onClick = onPlayPause)
+                OverlayGlyph(TablerIcons.SkipNextFill, "下一首", onClick = onNext)
+                OverlayDivider()
+                if (showStyleControls) OverlayGlyph(TablerIcons.Settings,
+                    if (editingStyle) "收起歌词样式" else "调整歌词样式", active = editingStyle) {
+                    editingStyle = !editingStyle
+                    onEditingStyleChanged(editingStyle)
+                }
+                onLock?.let { lock -> OverlayGlyph(TablerIcons.Lock, "锁定后点击穿透", onClick = lock) }
+                OverlayGlyph(TablerIcons.Close, "关闭桌面歌词", onClick = onClose)
+            }
+            if (showStyleControls && editingStyle) {
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+                    .background(Color.Black.copy(alpha = 0.52f))
+                    .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(18.dp))
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.fillMaxWidth().wrapContentHeight(), horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically) {
-                        onLock?.let { lock ->
-                            MusesIconButton(onClick = lock, imageVector = TablerIcons.Lock, contentDescription = "锁定歌词并穿透",
-                                modifier = Modifier.size(40.dp))
-                        }
-                        MusesIconButton(onClick = onPrevious, imageVector = TablerIcons.SkipPreviousFill, contentDescription = "上一首")
-                        MusesIconButton(onClick = onPlayPause, imageVector = if (isPlaying) TablerIcons.PauseFill else TablerIcons.PlayFill,
-                            contentDescription = if (isPlaying) "暂停" else "播放")
-                        MusesIconButton(onClick = onNext, imageVector = TablerIcons.SkipNextFill, contentDescription = "下一首")
-                        MusesIconButton(onClick = {
-                            editingStyle = !editingStyle
-                            onEditingStyleChanged(editingStyle)
-                        }, imageVector = TablerIcons.Settings, contentDescription = if (editingStyle) "收起歌词样式" else "调整歌词样式",
-                            tint = if (editingStyle) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground)
-                    }
-                    if (editingStyle) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly,
-                            verticalAlignment = Alignment.CenterVertically) {
-                            listOf(0xFF007AFFL to "蓝色", 0xFF00C853L to "绿色", 0xFFE53935L to "红色", 0xFFFFFFFFL to "白色").forEach { (argb, label) ->
-                                val chosen = selectedColor == Color(argb.toInt())
-                                MusesIconButton(onClick = { onColor(argb) }, contentDescription = "歌词颜色：$label",
-                                    modifier = Modifier.semantics { selected = chosen }) {
-                                    Box(Modifier.size(30.dp).border(if (chosen) 2.dp else 0.dp,
-                                        if (chosen) MiuixTheme.colorScheme.primary else Color.Transparent, CircleShape)
-                                        .padding(4.dp).background(Color(argb.toInt()), CircleShape)
-                                        .border(1.dp, MiuixTheme.colorScheme.onBackground.copy(alpha = 0.15f), CircleShape))
-                                }
+                        listOf(0xFF007AFFL to "蓝色", 0xFF00C853L to "绿色", 0xFFE53935L to "红色", 0xFFFFFFFFL to "白色").forEach { (argb, label) ->
+                            val chosen = selectedColor == Color(argb.toInt())
+                            Box(Modifier.size(28.dp).clip(CircleShape)
+                                .clickable(onClickLabel = "歌词颜色：$label") { onColor(argb) }
+                                .semantics { selected = chosen }, contentAlignment = Alignment.Center) {
+                                Box(Modifier.size(22.dp)
+                                    .background(Color(argb.toInt()), CircleShape)
+                                    .border(if (chosen) 2.dp else 1.dp,
+                                        if (chosen) Color.White else Color.White.copy(alpha = 0.28f), CircleShape))
                             }
-                            MusesIconButton(onClick = { onColor(0L) }, imageVector = TablerIcons.Refresh, contentDescription = "跟随自动配色",
-                                modifier = Modifier.semantics { selected = selectedColor == null },
-                                tint = if (selectedColor == null) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onBackground)
                         }
-                        Row(Modifier.fillMaxWidth().padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(if (selectedColor == null) "自动配色" else "自选颜色", modifier = Modifier.weight(1f),
-                                style = MiuixTheme.textStyles.body2)
-                            MusesIconButton(onClick = { onFontSize(fontSize - 2) }, imageVector = TablerIcons.Remove,
-                                contentDescription = "缩小歌词", enabled = fontSize > 14)
-                            Text("$fontSize", style = MiuixTheme.textStyles.body2)
-                            MusesIconButton(onClick = { onFontSize(fontSize + 2) }, imageVector = TablerIcons.Add,
-                                contentDescription = "放大歌词", enabled = fontSize < 40)
-                        }
+                        OverlayGlyph(TablerIcons.Refresh, "跟随封面自动配色", active = selectedColor == null) { onColor(0L) }
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(if (selectedColor == null) "自动配色" else "自选颜色", modifier = Modifier.weight(1f),
+                            style = MiuixTheme.textStyles.body2, color = Color.White.copy(alpha = 0.72f))
+                        OverlayGlyph(TablerIcons.Remove, "缩小歌词", enabled = fontSize > 14) { onFontSize(fontSize - 2) }
+                        Text("$fontSize", style = MiuixTheme.textStyles.body2, color = Color.White)
+                        OverlayGlyph(TablerIcons.Add, "放大歌词", enabled = fontSize < 40) { onFontSize(fontSize + 2) }
                     }
                 }
             }
         }
     }
+}
+
+/** 悬浮条上的单个图标按钮：小触控区、无涟漪、按压轻微缩放，贴合条形容器。 */
+@Composable
+private fun OverlayGlyph(icon: ImageVector, label: String, emphasized: Boolean = false, active: Boolean = false,
+    enabled: Boolean = true, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.9f else 1f, label = "overlay-glyph-scale")
+    Box(Modifier.size(if (emphasized) 36.dp else 32.dp).scale(scale).clip(CircleShape)
+        .background(if (pressed) Color.White.copy(alpha = 0.14f) else Color.Transparent)
+        .clickable(interactionSource = interaction, indication = null, enabled = enabled, onClickLabel = label, onClick = onClick)
+        .semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
+        Icon(icon, contentDescription = null,
+            tint = when {
+                !enabled -> Color.White.copy(alpha = 0.32f)
+                active || emphasized -> Color.White.copy(alpha = 0.95f)
+                else -> Color.White.copy(alpha = 0.8f)
+            },
+            modifier = Modifier.size(if (emphasized) 20.dp else 17.dp))
+    }
+}
+
+@Composable
+private fun OverlayDivider() {
+    Box(Modifier.padding(horizontal = 2.dp).size(1.dp, 16.dp).background(Color.White.copy(alpha = 0.16f)))
 }
 
 /**

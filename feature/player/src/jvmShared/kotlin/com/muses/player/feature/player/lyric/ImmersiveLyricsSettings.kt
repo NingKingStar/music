@@ -171,7 +171,7 @@ internal fun LyricsSettingsContent(
                         uncheckedTrackColor = LyricsInk.copy(alpha = .18f)),
                     modifier = Modifier.semantics { contentDescription = "逐字高亮" })
             }
-            DesktopLyricsSettingRow(LyricsInk, LyricsSecondary, Modifier.padding(top = 4.dp))
+            DesktopLyricsSettingSection(LyricsInk, LyricsSecondary, Modifier.padding(top = 4.dp))
             if (onRetry != null) Row(Modifier.fillMaxWidth().padding(top = 8.dp)
                 .height(44.dp).clip(RoundedCornerShape(12.dp)).clickable(enabled = !loading, role = Role.Button) { onRetry(); onClose() },
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {

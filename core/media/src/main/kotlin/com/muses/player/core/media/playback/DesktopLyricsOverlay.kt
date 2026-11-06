@@ -188,6 +188,8 @@ class DesktopLyricsOverlay(private val context: Context, private val onClose: ()
                         onColor = { color -> interact { onColor(color) } },
                         onFontSize = { size -> interact { onFontSize(size) } },
                         onEditingStyleChanged = { editingStyle = it; scheduleHide() },
+                        // 悬浮条不放样式调节：颜色/字号/锁定都在歌词显示弹层里改，锁定后也能调回来。
+                        showStyleControls = false,
                         onContentHeightChanged = { height ->
                             if (contentHeightPx != height) {
                                 contentHeightPx = height

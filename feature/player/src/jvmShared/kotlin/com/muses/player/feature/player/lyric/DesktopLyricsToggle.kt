@@ -14,10 +14,10 @@ import androidx.compose.ui.graphics.Color
 expect fun DesktopLyricsActionButton(tint: Color, modifier: Modifier = Modifier)
 
 /**
- * 歌词显示弹层里的文字版开关（手机端专用）。
+ * 歌词显示弹层里的桌面歌词分区（手机端专用）。
  *
- * 「译 / 音 / 词」是内容维度的开关，桌面歌词是环境维度的能力，混在一列里看不出来，
- * 因此放在弹层里用整行文字说明。
+ * 「译 / 音 / 词」是内容维度的开关，桌面歌词是环境维度的能力，混在一列里看不出来；
+ * 而悬浮条本身不能放太多控件（而且要能锁定后仍可调），所以开关、锁定、字号、颜色都收在这里。
  */
 @Composable
-expect fun DesktopLyricsSettingRow(ink: Color, secondary: Color, modifier: Modifier = Modifier)
+expect fun DesktopLyricsSettingSection(ink: Color, secondary: Color, modifier: Modifier = Modifier)
