@@ -76,14 +76,19 @@ import com.muses.player.core.search.PlatformSearchOutcome
 import com.muses.player.core.data.repository.SettingsRepository
 import com.muses.player.core.model.Song
 import com.muses.player.core.model.SourceType
+import com.muses.player.core.model.download.DownloadStatus
+import com.muses.player.core.model.download.DownloadTask
 import com.muses.player.core.lxsdk.musicQualitySelections
 import com.muses.player.core.lxsdk.qualitySelectionKey
 import com.muses.player.core.lxsdk.qualitySelectionLabel
+import com.muses.player.core.lxsdk.LxSourcePreference
 import com.muses.player.core.search.OnlineChart
 import com.muses.player.core.search.OnlineChartService
 import com.muses.player.core.search.OnlinePlaylist
+import com.muses.player.core.search.provider.ImportedPlaylist
 import com.muses.player.core.search.provider.PlaylistAddress
 import com.muses.player.core.search.provider.PlaylistImportService
+import com.muses.player.core.search.provider.parsePlaylistAddress
 import com.muses.player.core.search.http.SearchHttp
 import com.muses.player.core.ui.components.MusesCover
 import com.muses.player.core.ui.components.MusesCoverRadius
@@ -95,7 +100,14 @@ import com.muses.player.desktop.update.DesktopUpdateInfo
 import com.muses.player.feature.home.HomeViewModel
 import com.muses.player.feature.player.lyric.LyricsParser
 import com.muses.player.download.DownloadManager
+import com.muses.player.feature.sources.LxImportValidation
+import com.muses.player.feature.sources.LxScriptItem
+import com.muses.player.feature.sources.LxScriptsViewModel
+import com.muses.player.feature.sources.LxUrlImportStatus
+import com.muses.player.feature.sources.rememberLxScriptFilePicker
+import com.muses.player.feature.sources.rememberLxScriptUrlImporter
 import com.muses.player.feature.sources.rememberLocalFolderPicker
+import com.muses.player.navigation.PlaylistMetadataManager
 import java.io.File
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -108,7 +120,9 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
-private enum class DesktopSection { DISCOVER, PLAYLISTS, LOCAL, ONLINE, FAVORITES, DOWNLOADED, SEARCH, SETTINGS }
+private enum class DesktopSection { DISCOVER, PLAYLISTS, LOCAL, ONLINE, FAVORITES, DOWNLOADED, SEARCH, SOURCES, SETTINGS }
+
+private enum class DesktopQualityPicker { PLAY, DOWNLOAD }
 
 private data class DesktopSongActions(
     val isLiked: (Song) -> Boolean = { false },
@@ -126,6 +140,7 @@ fun DesktopShell(onExit: () -> Unit = {}) {
     val songRepository = koinInject<SongRepository>()
     val favoritesStore = koinInject<FavoriteSongsStore>()
     val downloadStore = koinInject<DownloadQueueStore>()
+    val settingsRepository = koinInject<SettingsRepository>()
     val onlineSearch = koinInject<OnlineSearchService>()
     val onlineCharts = koinInject<OnlineChartService>()
     val downloadManager = koinInject<DownloadManager>()
@@ -134,6 +149,7 @@ fun DesktopShell(onExit: () -> Unit = {}) {
     val localSongs by songRepository.observeSongs().collectAsState(initial = emptyList())
     val favoriteState by favoritesStore.state.collectAsState()
     val downloaded by downloadStore.downloadedSongs.collectAsState(initial = emptyList())
+    val downloadTasks by downloadManager.tasks.collectAsState(initial = emptyList())
     val homeState by homeViewModel.state.collectAsState()
 
     var section by remember { mutableStateOf(DesktopSection.DISCOVER) }
@@ -141,6 +157,7 @@ fun DesktopShell(onExit: () -> Unit = {}) {
     var query by remember { mutableStateOf("") }
     var toast by remember { mutableStateOf<String?>(null) }
     var showCreatePlaylist by remember { mutableStateOf(false) }
+    var showImportPlaylist by remember { mutableStateOf(false) }
     var onlineTitle by remember { mutableStateOf<String?>(null) }
     var onlineSongs by remember { mutableStateOf<List<Song>>(emptyList()) }
     var onlineLoading by remember { mutableStateOf(false) }
@@ -158,6 +175,9 @@ fun DesktopShell(onExit: () -> Unit = {}) {
     var updateError by remember { mutableStateOf<String?>(null) }
     var downloading by remember { mutableStateOf(false) }
     var downloadProgress by remember { mutableStateOf(0f) }
+    var downloadQualitySong by remember { mutableStateOf<Song?>(null) }
+    val chooseDownloadQuality by settingsRepository.chooseDownloadQuality.collectAsState(true)
+    val downloadPreferredQuality by settingsRepository.downloadPreferredQuality.collectAsState("320k")
     fun importLocalFolder(path: String) {
         if (path.isBlank() || localScanning) return
         localScanning = true
@@ -272,8 +292,12 @@ fun DesktopShell(onExit: () -> Unit = {}) {
             toastMessage("本地歌曲不需要下载")
             return
         }
-        downloadManager.enqueue(song, startImmediately = true)
-        toastMessage("已加入下载队列")
+        if (chooseDownloadQuality) {
+            downloadQualitySong = song
+        } else {
+            downloadManager.enqueue(song, startImmediately = true)
+            toastMessage("已加入下载队列")
+        }
     }
     val songActions = DesktopSongActions(
         isLiked = { song -> favoriteState.isLiked(song) },
@@ -355,6 +379,7 @@ fun DesktopShell(onExit: () -> Unit = {}) {
                 onDownloaded = { section = DesktopSection.DOWNLOADED; selectedPlaylistId = null; query = "" },
                 onPlaylists = { section = DesktopSection.PLAYLISTS; selectedPlaylistId = null; query = "" },
                 onLocal = { section = DesktopSection.LOCAL; selectedPlaylistId = null },
+                onSources = { section = DesktopSection.SOURCES; selectedPlaylistId = null; query = "" },
                 onSettings = { section = DesktopSection.SETTINGS; selectedPlaylistId = null; query = "" },
                 onPlaylist = ::openPlaylist,
                 onCreatePlaylist = { showCreatePlaylist = true },
@@ -385,6 +410,7 @@ fun DesktopShell(onExit: () -> Unit = {}) {
                                 charts = homeState.chart.charts,
                                 onOpenPlaylist = ::openPlaylist,
                                 onCreatePlaylist = { showCreatePlaylist = true },
+                                onImportPlaylist = { showImportPlaylist = true },
                                 onOnline = ::openOnline,
                                 onChart = ::openChart,
                             )
@@ -395,6 +421,7 @@ fun DesktopShell(onExit: () -> Unit = {}) {
                                         playlists = playlists,
                                         onOpen = ::openPlaylist,
                                         onCreate = { showCreatePlaylist = true },
+                                        onImport = { showImportPlaylist = true },
                                     )
                                 } else {
                                     DesktopPlaylistDetail(
@@ -440,6 +467,8 @@ fun DesktopShell(onExit: () -> Unit = {}) {
                                 emptyText = if (query.isBlank()) "还没有已下载的歌曲" else "没有找到匹配歌曲",
                                 onPlay = { song -> playSong(song, visibleSongs) },
                                 onPlayAll = { visibleSongs.firstOrNull()?.let { playSong(it, visibleSongs) } },
+                                downloadTasks = downloadTasks,
+                                onRemoveDownload = { id -> downloadManager.remove(id) },
                             )
                             DesktopSection.SEARCH -> DesktopSearchPage(
                                 keyword = query,
@@ -447,6 +476,10 @@ fun DesktopShell(onExit: () -> Unit = {}) {
                                 loading = searchLoading,
                                 error = searchError,
                                 onPlay = { song -> playSong(song, visibleSongs) },
+                            )
+                            DesktopSection.SOURCES -> DesktopSourcesPage(
+                                onOpenLocal = { section = DesktopSection.LOCAL; selectedPlaylistId = null },
+                                onToast = ::toastMessage,
                             )
                             DesktopSection.SETTINGS -> DesktopSettingsPage(
                                 version = DesktopRuntime.appVersion(),
@@ -500,6 +533,32 @@ fun DesktopShell(onExit: () -> Unit = {}) {
                         .onSuccess { id -> showCreatePlaylist = false; openPlaylist(id) }
                         .onFailure { toastMessage(it.message ?: "创建歌单失败") }
                 }
+            },
+        )
+    }
+
+    if (downloadQualitySong != null) {
+        DesktopQualityDialog(
+            title = "下载音质",
+            selectedKey = downloadPreferredQuality,
+            onDismiss = { downloadQualitySong = null },
+            onSelect = { option ->
+                val song = downloadQualitySong
+                downloadQualitySong = null
+                if (song != null) {
+                    downloadManager.enqueue(song, startImmediately = true, selectedQuality = option.key)
+                    toastMessage("已按 ${option.label} 加入下载队列")
+                }
+            },
+        )
+    }
+
+    if (showImportPlaylist) {
+        ImportPlaylistDialog(
+            onDismiss = { showImportPlaylist = false },
+            onImported = { id ->
+                showImportPlaylist = false
+                openPlaylist(id)
             },
         )
     }
@@ -723,30 +782,36 @@ private fun DesktopSettingsPage(
     val lyricsTranslation by settings.lyricTranslationEnabled.collectAsState(true)
     val lyricsRomanization by settings.lyricRomanizationEnabled.collectAsState(true)
     val autoScrape by settings.autoScrapeEnabled.collectAsState(false)
-    val builtinSources by settings.builtinLxSourcesEnabled.collectAsState(true)
     val playQuality by settings.onlinePreferredQuality.collectAsState("320k")
     val downloadQuality by settings.downloadPreferredQuality.collectAsState("320k")
-    val qualities = musicQualitySelections
-    fun nextQuality(key: String) = qualities[(qualities.indexOfFirst { it.key == qualitySelectionKey(key) }.coerceAtLeast(0) + 1) % qualities.size]
+    val chooseDownloadQuality by settings.chooseDownloadQuality.collectAsState(true)
+    val downloadDirectory by settings.downloadDeviceDirectory.collectAsState("")
+    val desktopLyricsLocked by settings.desktopLyricsLocked.collectAsState(false)
+    val lyricsFontSize by settings.desktopLyricsFontSize.collectAsState(22L)
+    var qualityPicker by remember { mutableStateOf<DesktopQualityPicker?>(null) }
+    var showLyricsFontSize by remember { mutableStateOf(false) }
+    val pickDownloadDirectory = rememberLocalFolderPicker { path ->
+        scope.launch { settings.setDownloadDeviceDirectory(path) }
+        onToast("下载目录已更新")
+    }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 34.dp, vertical = 10.dp),
     ) {
         Text("设置", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = scheme.onBackground)
         Text("播放、歌词与下载的默认行为", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 4.dp, bottom = 22.dp))
 
-        DesktopSettingSection("播放") {
-            DesktopSettingActionRow("在线播放音质", "首选 ${qualitySelectionLabel(playQuality)}，不可用时自动回退", "切换") {
-                val next = nextQuality(playQuality)
-                scope.launch { settings.setOnlinePreferredQuality(next.key) }
-                onToast("在线播放音质已切换为 ${next.label}")
+        DesktopSettingSection("播放与下载") {
+            DesktopSettingActionRow("在线播放音质", "首选 ${qualitySelectionLabel(playQuality)}，不可用时自动回退", "选择") {
+                qualityPicker = DesktopQualityPicker.PLAY
             }
-            DesktopSettingActionRow("下载音质", "保存文件的首选档位 ${qualitySelectionLabel(downloadQuality)}", "切换") {
-                val next = nextQuality(downloadQuality)
-                scope.launch { settings.setDownloadPreferredQuality(next.key) }
-                onToast("下载音质已切换为 ${next.label}")
+            DesktopSettingActionRow("下载音质", "保存文件的首选档位 ${qualitySelectionLabel(downloadQuality)}", "选择") {
+                qualityPicker = DesktopQualityPicker.DOWNLOAD
             }
-            DesktopSettingToggleRow("内置音源", "内置洛雪音源参与在线搜索和播放", builtinSources) {
-                scope.launch { settings.setBuiltinLxSourcesEnabled(it) }
+            DesktopSettingToggleRow("下载前选择音质", "单曲下载时弹出音质选项", chooseDownloadQuality) {
+                scope.launch { settings.setChooseDownloadQuality(it) }
+            }
+            DesktopSettingActionRow("下载目录", downloadDirectory.ifBlank { "系统下载目录 / Muses" }, "选择") {
+                pickDownloadDirectory()
             }
             DesktopSettingToggleRow("播放时自动刮削", "为缺少标签或封面的歌曲补充元数据", autoScrape) {
                 scope.launch { settings.setAutoScrapeEnabled(it) }
@@ -756,6 +821,12 @@ private fun DesktopSettingsPage(
         DesktopSettingSection("歌词") {
             DesktopSettingToggleRow("桌面悬浮歌词", "播放时在桌面显示独立歌词窗口", desktopLyrics) {
                 scope.launch { settings.setDesktopLyricsEnabled(it) }
+            }
+            DesktopSettingToggleRow("锁定悬浮歌词", "锁定后窗口不阻塞鼠标操作，可在设置中解除", desktopLyricsLocked) {
+                scope.launch { settings.setDesktopLyricsLocked(it) }
+            }
+            DesktopSettingActionRow("悬浮歌词字号", "当前 ${lyricsFontSize}px", "选择") {
+                showLyricsFontSize = true
             }
             DesktopSettingToggleRow("显示歌词翻译", "在歌词页与悬浮歌词中显示译文", lyricsTranslation) {
                 scope.launch { settings.setLyricTranslationEnabled(it) }
@@ -770,6 +841,75 @@ private fun DesktopSettingsPage(
             DesktopSettingRowText("数据与更新", "安装包与更新清单来自 up.raink.cloud", "国内通道")
         }
         Spacer(Modifier.height(24.dp))
+    }
+    qualityPicker?.let { target ->
+        DesktopQualityDialog(
+            title = if (target == DesktopQualityPicker.PLAY) "在线播放音质" else "下载音质",
+            selectedKey = if (target == DesktopQualityPicker.PLAY) playQuality else downloadQuality,
+            onDismiss = { qualityPicker = null },
+            onSelect = { option ->
+                scope.launch {
+                    if (target == DesktopQualityPicker.PLAY) settings.setOnlinePreferredQuality(option.key)
+                    else settings.setDownloadPreferredQuality(option.key)
+                }
+                qualityPicker = null
+                onToast("已设为 ${option.label}")
+            },
+        )
+    }
+    if (showLyricsFontSize) {
+        Dialog(onDismissRequest = { showLyricsFontSize = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Column(Modifier.width(320.dp).clip(RoundedCornerShape(12.dp)).background(scheme.surface).padding(20.dp)) {
+                Text("悬浮歌词字号", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = scheme.onBackground)
+                Spacer(Modifier.height(8.dp))
+                listOf(16L, 20L, 22L, 26L, 30L, 34L).forEach { size ->
+                    val selected = size == lyricsFontSize
+                    Row(
+                        Modifier.fillMaxWidth().height(38.dp).clip(RoundedCornerShape(7.dp))
+                            .background(if (selected) scheme.primary.copy(alpha = 0.10f) else Color.Transparent)
+                            .clickable(role = Role.Button) {
+                                scope.launch { settings.setDesktopLyricsFontSize(size) }
+                                showLyricsFontSize = false
+                                onToast("悬浮歌词字号已设为 ${size}px")
+                            }
+                            .padding(horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("${size}px", fontSize = 12.sp, color = if (selected) scheme.primary else scheme.onBackground, modifier = Modifier.weight(1f))
+                        if (selected) Icon(TablerIcons.Check, null, tint = scheme.primary, modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DesktopQualityDialog(
+    title: String,
+    selectedKey: String,
+    onDismiss: () -> Unit,
+    onSelect: (com.muses.player.core.lxsdk.QualitySelection) -> Unit,
+) {
+    val scheme = MiuixTheme.colorScheme
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.width(340.dp).clip(RoundedCornerShape(12.dp)).background(scheme.surface).padding(20.dp)) {
+            Text(title, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = scheme.onBackground)
+            Text("直接选择一个档位，播放时按该档位优先并自动回退。", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 4.dp, bottom = 10.dp))
+            musicQualitySelections.forEach { option ->
+                val selected = option.key == qualitySelectionKey(selectedKey)
+                Row(
+                    Modifier.fillMaxWidth().height(40.dp).clip(RoundedCornerShape(7.dp))
+                        .background(if (selected) scheme.primary.copy(alpha = 0.10f) else Color.Transparent)
+                        .clickable(role = Role.Button) { onSelect(option) }
+                        .padding(horizontal = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(option.label, fontSize = 12.sp, color = if (selected) scheme.primary else scheme.onBackground, modifier = Modifier.weight(1f))
+                    if (selected) Icon(TablerIcons.Check, "当前音质", tint = scheme.primary, modifier = Modifier.size(16.dp))
+                }
+            }
+        }
     }
 }
 
@@ -860,6 +1000,267 @@ private fun DesktopToggle(checked: Boolean, onChange: (Boolean) -> Unit) {
     }
 }
 
+@Composable
+private fun DesktopSourcesPage(
+    onOpenLocal: () -> Unit,
+    onToast: (String) -> Unit,
+) {
+    val scheme = MiuixTheme.colorScheme
+    val viewModel: LxScriptsViewModel = koinViewModel()
+    val items by viewModel.items.collectAsState()
+    val loading by viewModel.loading.collectAsState()
+    val builtinEnabled by viewModel.builtinEnabled.collectAsState(true)
+    val preferred by viewModel.preferredSource.collectAsState("")
+    val order by viewModel.sourceOrder.collectAsState(emptyList())
+    val validation by viewModel.importValidation.collectAsState()
+    val urlStatus by viewModel.urlImportStatus.collectAsState()
+    val notice by viewModel.notice.collectAsState()
+    val scope = rememberCoroutineScope()
+    var showImport by remember { mutableStateOf(false) }
+    var showUrlImport by remember { mutableStateOf(false) }
+    var showPriority by remember { mutableStateOf(false) }
+    var scriptUrl by remember { mutableStateOf("") }
+    var urlBusy by remember { mutableStateOf(false) }
+    var urlError by remember { mutableStateOf<String?>(null) }
+    var importBusy by remember { mutableStateOf(false) }
+    val orderedItems = items.sortedBy { order.indexOf(it.id).takeIf { index -> index >= 0 } ?: Int.MAX_VALUE }
+    val preferredName = when (preferred) {
+        "" -> "自动选择"
+        LxSourcePreference.BUILTIN -> "内置音源"
+        else -> items.firstOrNull { it.id == preferred }?.name ?: "自动回退"
+    }
+    val filePicker = rememberLxScriptFilePicker { result ->
+        result.fold(
+            onSuccess = { source -> viewModel.stageImport(source); showImport = true },
+            onFailure = { onToast(it.message ?: "读取脚本失败，请确认文件可读取") },
+        )
+    }
+    val importUrl = rememberLxScriptUrlImporter { result ->
+        urlBusy = false
+        result.fold(
+            onSuccess = { source -> viewModel.importFromUrlContent(source, scriptUrl.trim()) },
+            onFailure = { urlError = it.message ?: "下载脚本失败" },
+        )
+    }
+    LaunchedEffect(urlStatus) {
+        when (val status = urlStatus) {
+            LxUrlImportStatus.Success -> {
+                showUrlImport = false
+                onToast("音源脚本已导入并设为优先")
+                viewModel.resetUrlImportStatus()
+            }
+            is LxUrlImportStatus.Failure -> {
+                urlBusy = false
+                urlError = status.message
+                viewModel.resetUrlImportStatus()
+            }
+            else -> Unit
+        }
+    }
+    LaunchedEffect(notice) {
+        notice?.let { onToast(it); viewModel.clearNotice() }
+    }
+
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 34.dp, vertical = 10.dp)) {
+        Row(Modifier.fillMaxWidth().height(58.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("音源", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = scheme.onBackground)
+                Text("导入洛雪脚本、管理在线音源优先级与本地音乐", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 3.dp))
+            }
+            SecondaryButton("从链接导入") {
+                scriptUrl = ""
+                urlError = null
+                viewModel.resetUrlImportStatus()
+                showUrlImport = true
+            }
+            Spacer(Modifier.width(8.dp))
+            PrimaryButton("导入脚本", filePicker)
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(7.dp))
+                .clickable(role = Role.Button) { showPriority = true },
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("优先音源：$preferredName", fontSize = 11.sp, color = scheme.primary, modifier = Modifier.weight(1f))
+            Text("调整", fontSize = 10.sp, color = scheme.primary)
+        }
+
+        DesktopSettingSection("在线音源") {
+            DesktopSettingToggleRow(
+                title = "内置音源",
+                summary = "内置洛雪音源参与在线搜索与播放；关闭后只使用已导入脚本",
+                checked = builtinEnabled,
+                onChange = viewModel::setBuiltinEnabled,
+            )
+            if (loading && orderedItems.isEmpty()) {
+                Text("正在读取音源脚本…", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(vertical = 18.dp))
+            } else if (orderedItems.isEmpty()) {
+                Text("还没有导入自定义音源。点击右上角「导入脚本」选择 .js / .txt 文件。", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(vertical = 18.dp))
+            } else {
+                orderedItems.forEachIndexed { index, item ->
+                    DesktopSourceRow(
+                        item = item,
+                        priority = if (item.id == preferred) "优先使用" else "设为优先",
+                        canMoveUp = index > 0,
+                        canMoveDown = index < orderedItems.lastIndex,
+                        onToggle = { enabled -> viewModel.setEnabled(item.id, enabled) },
+                        onChoose = { viewModel.choosePreferred(item.id) },
+                        onMoveUp = { viewModel.moveSource(item.id, -1) },
+                        onMoveDown = { viewModel.moveSource(item.id, 1) },
+                        onDelete = { viewModel.delete(item.id) },
+                    )
+                }
+            }
+        }
+
+        DesktopSettingSection("本地音乐") {
+            DesktopSettingActionRow("管理本地音乐", "添加或移除本机音乐文件夹，桌面版直接读取文件标签", "打开") { onOpenLocal() }
+        }
+        Spacer(Modifier.height(24.dp))
+    }
+
+    if (showImport) {
+        Dialog(onDismissRequest = { if (!importBusy) { showImport = false; viewModel.clearStagedImport() } }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Column(Modifier.width(520.dp).clip(RoundedCornerShape(12.dp)).background(scheme.surface).padding(24.dp)) {
+                Text("导入音源脚本", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = scheme.onBackground)
+                Text("先校验脚本能否初始化，再写入并启用。支持洛雪 .js / .txt 脚本。", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 5.dp, bottom = 14.dp))
+                when (val current = validation) {
+                    LxImportValidation.Idle -> Text("等待校验…", fontSize = 12.sp, color = scheme.onBackgroundVariant)
+                    LxImportValidation.Validating -> Text("正在校验脚本…", fontSize = 12.sp, color = scheme.onBackgroundVariant)
+                    is LxImportValidation.Valid -> {
+                        Text(current.scriptName?.takeIf { it.isNotBlank() } ?: "未命名脚本", fontSize = 14.sp, fontWeight = FontWeight.Medium, color = scheme.onBackground)
+                        Text("可提供：${current.platforms.joinToString(" / ").ifBlank { "未知" }}", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 4.dp))
+                    }
+                    is LxImportValidation.Invalid -> Text(current.message, fontSize = 11.sp, color = scheme.error)
+                }
+                Row(Modifier.fillMaxWidth().padding(top = 20.dp), horizontalArrangement = Arrangement.End) {
+                    SecondaryButton("取消") { if (!importBusy) { showImport = false; viewModel.clearStagedImport() } }
+                    Spacer(Modifier.width(8.dp))
+                    Box(Modifier.height(34.dp).clip(RoundedCornerShape(7.dp)).background(if (validation is LxImportValidation.Valid) scheme.primary else scheme.onBackground.copy(alpha = 0.12f)).clickable(enabled = validation is LxImportValidation.Valid && !importBusy, role = Role.Button) {
+                        importBusy = true
+                        viewModel.confirmImport(onComplete = { result ->
+                            importBusy = false
+                            result.fold(
+                                onSuccess = { showImport = false; onToast("音源脚本已导入并设为优先") },
+                                onFailure = { onToast(it.message ?: "导入失败") },
+                            )
+                        })
+                    }.padding(horizontal = 18.dp), contentAlignment = Alignment.Center) {
+                        Text(if (importBusy) "导入中…" else "导入并启用", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = scheme.onPrimary)
+                    }
+                }
+            }
+        }
+    }
+
+    if (showUrlImport) {
+        Dialog(onDismissRequest = { if (!urlBusy) showUrlImport = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Column(Modifier.width(520.dp).clip(RoundedCornerShape(12.dp)).background(scheme.surface).padding(24.dp)) {
+                Text("从链接导入", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = scheme.onBackground)
+                Text("粘贴脚本的 HTTP/HTTPS 地址，Muses 会先下载并校验。", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 5.dp))
+                Box(Modifier.fillMaxWidth().padding(top = 16.dp).height(38.dp).clip(RoundedCornerShape(7.dp)).background(scheme.surfaceContainerHigh).padding(horizontal = 11.dp), contentAlignment = Alignment.CenterStart) {
+                    if (scriptUrl.isEmpty()) Text("https://example.com/source.js", fontSize = 12.sp, color = scheme.onBackgroundVariant)
+                    BasicTextField(
+                        value = scriptUrl,
+                        onValueChange = { scriptUrl = it; urlError = null },
+                        singleLine = true,
+                        textStyle = TextStyle(fontSize = 12.sp, color = scheme.onBackground),
+                        cursorBrush = SolidColor(scheme.primary),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                urlError?.let { Text(it, fontSize = 11.sp, color = scheme.error, modifier = Modifier.padding(top = 8.dp)) }
+                Row(Modifier.fillMaxWidth().padding(top = 20.dp), horizontalArrangement = Arrangement.End) {
+                    SecondaryButton("取消") { if (!urlBusy) showUrlImport = false }
+                    Spacer(Modifier.width(8.dp))
+                    PrimaryButton(if (urlBusy) "下载中…" else "导入") {
+                        if (!urlBusy && scriptUrl.isNotBlank()) {
+                            urlBusy = true
+                            urlError = null
+                            importUrl(scriptUrl.trim())
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showPriority) {
+        Dialog(onDismissRequest = { showPriority = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Column(Modifier.width(380.dp).clip(RoundedCornerShape(12.dp)).background(scheme.surface).padding(20.dp)) {
+                Text("优先音源", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = scheme.onBackground)
+                Text("优先失败后按备用顺序尝试。", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 4.dp, bottom = 10.dp))
+                val options = buildList {
+                    add("" to "自动选择")
+                    if (builtinEnabled) add(LxSourcePreference.BUILTIN to "内置音源")
+                    orderedItems.forEach { add(it.id to it.name) }
+                }
+                options.forEach { (key, label) ->
+                    val selected = preferred == key
+                    Row(
+                        Modifier.fillMaxWidth().height(40.dp).clip(RoundedCornerShape(7.dp))
+                            .background(if (selected) scheme.primary.copy(alpha = 0.10f) else Color.Transparent)
+                            .clickable(role = Role.Button) { viewModel.choosePreferred(key); showPriority = false }
+                            .padding(horizontal = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(label, fontSize = 12.sp, color = if (selected) scheme.primary else scheme.onBackground, modifier = Modifier.weight(1f))
+                        if (selected) Icon(TablerIcons.Check, null, tint = scheme.primary, modifier = Modifier.size(16.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DesktopSourceRow(
+    item: LxScriptItem,
+    priority: String,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onToggle: (Boolean) -> Unit,
+    onChoose: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val scheme = MiuixTheme.colorScheme
+    Column(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(item.name, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = scheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    listOfNotNull(item.author?.takeIf { it.isNotBlank() }, item.version?.takeIf { it.isNotBlank() }).joinToString(" · ").ifBlank { "洛雪音源脚本" },
+                    fontSize = 10.sp,
+                    color = scheme.onBackgroundVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            DesktopToggle(item.enabled, onToggle)
+        }
+        if (item.platforms.isNotEmpty()) {
+            Text("平台：${item.platforms.joinToString(" / ")}", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 5.dp))
+        }
+        item.loadError?.let { Text(it, fontSize = 10.sp, color = scheme.error, modifier = Modifier.padding(top = 4.dp)) }
+        Row(Modifier.fillMaxWidth().padding(top = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                priority,
+                fontSize = 10.sp,
+                color = if (priority == "优先使用") scheme.primary else scheme.onBackgroundVariant,
+                modifier = Modifier.clickable(role = Role.Button, onClick = onChoose),
+            )
+            Spacer(Modifier.weight(1f))
+            DesktopIconButton(TablerIcons.ChevronUp, "上移", 24.dp, enabled = canMoveUp, onClick = onMoveUp)
+            DesktopIconButton(TablerIcons.ChevronDown, "下移", 24.dp, enabled = canMoveDown, onClick = onMoveDown)
+            DesktopIconButton(TablerIcons.Delete, "删除音源", 24.dp, onClick = onDelete)
+        }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(scheme.onBackground.copy(alpha = 0.06f)))
+    }
+}
+
 private fun List<Song>.filterByQuery(query: String): List<Song> {
     val value = query.trim()
     if (value.isBlank()) return this
@@ -888,6 +1289,7 @@ private fun DesktopSidebar(
     onDownloaded: () -> Unit,
     onPlaylists: () -> Unit,
     onLocal: () -> Unit,
+    onSources: () -> Unit,
     onSettings: () -> Unit,
     onPlaylist: (String) -> Unit,
     onCreatePlaylist: () -> Unit,
@@ -904,6 +1306,7 @@ private fun DesktopSidebar(
         DesktopNavItem("已下载", TablerIcons.Download, section == DesktopSection.DOWNLOADED, onDownloaded, trail = downloadedCount.takeIf { it > 0 }?.toString())
         DesktopNavItem("我的歌单", TablerIcons.QueueMusic, section == DesktopSection.PLAYLISTS && selectedPlaylistId == null, onPlaylists)
         DesktopNavItem("本地音乐", TablerIcons.Folder, section == DesktopSection.LOCAL, onLocal, trail = localCount.takeIf { it > 0 }?.toString())
+        DesktopNavItem("音源", TablerIcons.Radio, section == DesktopSection.SOURCES, onSources)
 
         Row(
             Modifier.fillMaxWidth().padding(start = 10.dp, end = 4.dp, top = 22.dp, bottom = 6.dp),
@@ -942,8 +1345,7 @@ private fun DesktopSidebar(
         Spacer(Modifier.height(8.dp))
         Box(Modifier.fillMaxWidth().height(1.dp).background(scheme.onBackground.copy(alpha = 0.07f)))
         Row(Modifier.fillMaxWidth().padding(top = 10.dp, start = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(TablerIcons.Settings, null, tint = scheme.onBackgroundVariant, modifier = Modifier.size(15.dp))
-            Text("Muses $version", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(start = 8.dp), maxLines = 1)
+            Text("Muses $version", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(start = 2.dp), maxLines = 1)
             Spacer(Modifier.weight(1f))
             Text("检查更新", fontSize = 10.sp, color = scheme.primary,
                 modifier = Modifier.clickable(role = Role.Button, onClick = onCheckUpdate).padding(horizontal = 4.dp, vertical = 3.dp))
@@ -1040,6 +1442,7 @@ private fun DesktopDiscover(
     charts: List<OnlineChart>,
     onOpenPlaylist: (String) -> Unit,
     onCreatePlaylist: () -> Unit,
+    onImportPlaylist: () -> Unit,
     onOnline: (OnlinePlaylist) -> Unit,
     onChart: (OnlineChart) -> Unit,
 ) {
@@ -1086,17 +1489,22 @@ private fun DesktopDiscover(
                         fontSize = 12.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 4.dp),
                     )
                     Row(Modifier.padding(top = 15.dp), verticalAlignment = Alignment.CenterVertically) {
-                        PrimaryButton(if (onlineHero != null) "打开推荐" else "播放全部") {
-                            if (onlineHero != null) {
-                                onOnline(onlineHero)
-                            } else {
-                                val songs = playlists.firstOrNull()?.tracks?.map { it.toSong() }.orEmpty()
-                                songs.firstOrNull()?.let { playSong(it, songs) }
+                        PrimaryButton(
+                            when {
+                                onlineHero != null -> "打开推荐"
+                                hero != null -> "打开歌单"
+                                else -> "新建歌单"
+                            },
+                        ) {
+                            when {
+                                onlineHero != null -> onOnline(onlineHero)
+                                hero != null -> onOpenPlaylist(hero.id)
+                                else -> onCreatePlaylist()
                             }
                         }
-                        Spacer(Modifier.width(10.dp))
-                        SecondaryButton(if (hero != null) "打开歌单" else "新建歌单") {
-                            if (hero != null) onOpenPlaylist(hero.id) else onCreatePlaylist()
+                        if (onlineHero == null) {
+                            Spacer(Modifier.width(10.dp))
+                            SecondaryButton("导入歌单", onImportPlaylist)
                         }
                     }
                 }
@@ -1235,15 +1643,18 @@ private fun DesktopPlaylistGrid(
     playlists: List<com.muses.player.core.data.repository.UserPlaylist>,
     onOpen: (String) -> Unit,
     onCreate: () -> Unit,
+    onImport: () -> Unit,
 ) {
     val scheme = MiuixTheme.colorScheme
     Column(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 12.dp)) {
         Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("我的歌单", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = scheme.onBackground, modifier = Modifier.weight(1f))
-            SecondaryButton("新建歌单", onCreate)
+            SecondaryButton("导入歌单", onImport)
+            Spacer(Modifier.width(8.dp))
+            PrimaryButton("新建歌单", onCreate)
         }
         if (playlists.isEmpty()) {
-            EmptyPrompt("还没有自建歌单。", "新建歌单", onCreate)
+            EmptyPrompt("还没有自建歌单，点击右上角新建，或从网易云 / QQ 音乐导入。")
         } else {
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 items(playlists.chunked(4)) { row ->
@@ -1258,14 +1669,14 @@ private fun DesktopPlaylistGrid(
 }
 
 @Composable
-private fun EmptyPrompt(message: String, action: String, onClick: () -> Unit) {
+private fun EmptyPrompt(message: String, action: String? = null, onClick: (() -> Unit)? = null) {
     val scheme = MiuixTheme.colorScheme
     Row(
         Modifier.fillMaxWidth().padding(vertical = 18.dp),
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {
         Text(message, fontSize = 12.sp, color = scheme.onBackgroundVariant, modifier = Modifier.weight(1f))
-        SecondaryButton(action, onClick)
+        if (action != null && onClick != null) SecondaryButton(action, onClick)
     }
 }
 
@@ -1411,6 +1822,8 @@ private fun DesktopSongPage(
     onPlayAll: () -> Unit,
     onImportFolder: (() -> Unit)? = null,
     importLabel: String = "添加文件夹",
+    downloadTasks: List<DownloadTask> = emptyList(),
+    onRemoveDownload: (String) -> Unit = {},
 ) {
     val scheme = MiuixTheme.colorScheme
     Column(Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 8.dp)) {
@@ -1426,6 +1839,11 @@ private fun DesktopSongPage(
             }
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(scheme.onBackground.copy(alpha = 0.08f)))
+        val pendingDownloads = downloadTasks.filter { it.status != DownloadStatus.COMPLETED }
+        if (pendingDownloads.isNotEmpty()) {
+            DesktopDownloadTaskList(pendingDownloads, onRemoveDownload)
+            Box(Modifier.fillMaxWidth().height(1.dp).background(scheme.onBackground.copy(alpha = 0.08f)))
+        }
         TrackTable(
             songs = songs,
             emptyText = emptyText,
@@ -1433,6 +1851,59 @@ private fun DesktopSongPage(
             modifier = Modifier.weight(1f),
         )
     }
+}
+
+@Composable
+private fun DesktopDownloadTaskList(tasks: List<DownloadTask>, onRemove: (String) -> Unit) {
+    val scheme = MiuixTheme.colorScheme
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(Modifier.fillMaxWidth().height(24.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("下载任务", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = scheme.onBackgroundVariant, modifier = Modifier.weight(1f))
+            Text("${tasks.size} 个", fontSize = 10.sp, color = scheme.onBackgroundVariant)
+        }
+        tasks.take(4).forEach { task ->
+            val total = task.totalBytes ?: 0L
+            val progress = if (total > 0) (task.downloadedBytes.toFloat() / total).coerceIn(0f, 1f) else 0f
+            Row(Modifier.fillMaxWidth().height(38.dp), verticalAlignment = Alignment.CenterVertically) {
+                MusesCover(task.track.coverUri, size = 28.dp, radius = MusesCoverRadius.SM)
+                Column(Modifier.weight(1f).padding(start = 9.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(task.track.title, fontSize = 11.sp, color = scheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Text(
+                            downloadStatusLabel(task),
+                            fontSize = 9.sp,
+                            color = if (task.status == DownloadStatus.FAILED) scheme.error else scheme.onBackgroundVariant,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                    Box(Modifier.fillMaxWidth().padding(top = 4.dp).height(3.dp).clip(RoundedCornerShape(2.dp)).background(scheme.onBackground.copy(alpha = 0.10f))) {
+                        if (progress > 0f) Box(Modifier.fillMaxWidth(progress).height(3.dp).clip(RoundedCornerShape(2.dp)).background(scheme.primary))
+                    }
+                    task.error?.let { message ->
+                        Text(message, fontSize = 9.sp, color = scheme.error, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
+                    }
+                }
+                DesktopIconButton(TablerIcons.Close, "取消下载", 24.dp) { onRemove(task.id) }
+            }
+        }
+        if (tasks.size > 4) Text("还有 ${tasks.size - 4} 个下载任务", fontSize = 10.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(start = 37.dp))
+    }
+}
+
+private fun downloadStatusLabel(task: DownloadTask): String = when (task.status) {
+    DownloadStatus.WAITING -> "等待中"
+    DownloadStatus.PREPARING -> "准备中"
+    DownloadStatus.DOWNLOADING -> {
+        val total = task.totalBytes ?: 0L
+        if (total > 0) "${(task.downloadedBytes * 100 / total).coerceIn(0, 100)}%" else "下载中"
+    }
+    DownloadStatus.METADATA -> "整理标签"
+    DownloadStatus.SAVING -> "保存中"
+    DownloadStatus.UPLOADING -> "上传中"
+    DownloadStatus.PENDING_UPLOAD -> "等待上传"
+    DownloadStatus.PAUSED -> "已暂停"
+    DownloadStatus.FAILED -> "失败"
+    DownloadStatus.COMPLETED -> "已完成"
 }
 
 @Composable
@@ -1688,6 +2159,89 @@ private fun CreatePlaylistDialog(
                         .padding(horizontal = 18.dp),
                     contentAlignment = Alignment.Center,
                 ) { Text("创建", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = scheme.onPrimary) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ImportPlaylistDialog(
+    onDismiss: () -> Unit,
+    onImported: (String) -> Unit,
+) {
+    val scheme = MiuixTheme.colorScheme
+    val http = koinInject<SearchHttp>()
+    val service = remember(http) { PlaylistImportService(http) }
+    val store = koinInject<UserPlaylistStore>()
+    val metadata = koinInject<PlaylistMetadataManager>()
+    val scope = rememberCoroutineScope()
+    var link by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf("") }
+    var loaded by remember { mutableStateOf<ImportedPlaylist?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    Dialog(onDismissRequest = { if (!busy) onDismiss() }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.width(520.dp).clip(RoundedCornerShape(12.dp)).background(scheme.surface).padding(24.dp)) {
+            Text(if (loaded == null) "导入歌单" else "确认导入", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = scheme.onBackground)
+            Text(
+                if (loaded == null) "粘贴网易云音乐或 QQ 音乐公开歌单的完整分享链接。"
+                else "共 ${loaded!!.songs.size} 首。导入后可在桌面继续播放和整理。",
+                fontSize = 11.sp,
+                color = scheme.onBackgroundVariant,
+                modifier = Modifier.padding(top = 5.dp),
+            )
+            Box(
+                Modifier.fillMaxWidth().padding(top = 18.dp).height(38.dp).clip(RoundedCornerShape(7.dp))
+                    .background(scheme.surfaceContainerHigh).padding(horizontal = 11.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                if (loaded == null && link.isEmpty()) Text("https://music.163.com/playlist?id=…", fontSize = 12.sp, color = scheme.onBackgroundVariant)
+                if (loaded != null && name.isEmpty()) Text("歌单名称", fontSize = 12.sp, color = scheme.onBackgroundVariant)
+                BasicTextField(
+                    value = if (loaded == null) link else name,
+                    onValueChange = { value -> if (loaded == null) { link = value; error = null } else name = value.take(40) },
+                    singleLine = true,
+                    textStyle = TextStyle(fontSize = 12.sp, color = scheme.onBackground),
+                    cursorBrush = SolidColor(scheme.primary),
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !busy,
+                )
+            }
+            error?.let { Text(it, fontSize = 11.sp, color = scheme.error, modifier = Modifier.padding(top = 8.dp)) }
+            Row(Modifier.fillMaxWidth().padding(top = 20.dp), horizontalArrangement = Arrangement.End) {
+                SecondaryButton(if (busy) "处理中…" else "取消") { if (!busy) { if (loaded != null) loaded = null else onDismiss() } }
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    Modifier.height(34.dp).clip(RoundedCornerShape(7.dp))
+                        .background(if (busy) scheme.onBackground.copy(alpha = 0.12f) else scheme.primary)
+                        .clickable(enabled = !busy && (if (loaded == null) link.isNotBlank() else name.isNotBlank()), role = Role.Button) {
+                            if (busy) return@clickable
+                            busy = true
+                            error = null
+                            scope.launch {
+                                try {
+                                    if (loaded == null) {
+                                        val result = service.load(parsePlaylistAddress(link.trim()))
+                                        loaded = result
+                                        name = result.name.take(40)
+                                    } else {
+                                        val current = loaded ?: return@launch
+                                        val id = store.createImported(name.trim(), current.songs.map { it.toSong("online") }.asReversed())
+                                        metadata.start()
+                                        onImported(id)
+                                    }
+                                } catch (e: Exception) {
+                                    error = e.message ?: "读取歌单失败，请检查链接"
+                                } finally {
+                                    busy = false
+                                }
+                            }
+                        }
+                        .padding(horizontal = 18.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(if (loaded == null) "预览歌单" else "导入", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = scheme.onPrimary)
+                }
             }
         }
     }

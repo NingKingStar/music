@@ -180,9 +180,15 @@ class LxScriptsViewModel(
                 }
                 // 同步运行态：把磁盘状态与仓库对齐（新增/删除/启禁用）
                 syncRepository(stored)
+                // 没有自定义脚本时无需加载全部内置脚本；音源页可立即展示内置开关与优先项。
+                val custom = stored.filterNot { it.isBuiltin }
+                if (custom.isEmpty()) {
+                    _items.value = emptyList()
+                    return@launch
+                }
                 // 触发加载以回显源声明与错误
-                repository.loadAll()
-                _items.value = buildItems(stored.filterNot { it.isBuiltin })
+                val loaded = repository.loadAll().associateBy { it.scriptId }
+                _items.value = buildItems(custom, loaded)
             } finally {
                 _loading.value = false
             }
@@ -359,8 +365,7 @@ class LxScriptsViewModel(
         registered.keys.filter { it !in enabledIds }.forEach { repository.unregister(it) }
     }
 
-    private suspend fun buildItems(stored: List<LxStoredScript>): List<LxScriptItem> {
-        val loaded = repository.loadAll().associateBy { it.scriptId }
+    private suspend fun buildItems(stored: List<LxStoredScript>, loaded: Map<String, com.muses.player.core.lxsdk.LoadedLxScript>): List<LxScriptItem> {
         return stored.map { script ->
             val runtime = loaded[script.id]
             val declarations = runtime?.sources.orEmpty()
