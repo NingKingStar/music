@@ -40,13 +40,17 @@ data class DesktopLyricsText(
     val isPlaying: Boolean = false,
 )
 
-fun desktopLyricsText(snapshot: DesktopLyricsSnapshot, positionMs: Long, showTranslation: Boolean, isPlaying: Boolean = false): DesktopLyricsText {
+fun desktopLyricsText(snapshot: DesktopLyricsSnapshot, positionMs: Long, showTranslation: Boolean, isPlaying: Boolean = false, showRomanization: Boolean = false): DesktopLyricsText {
     val line = snapshot.document?.let { document ->
         document.highlightedIndex(positionMs)?.let { document.lines.getOrNull(it) }
     }
     val primary = line?.text?.takeIf { it.isNotBlank() } ?: snapshot.title.ifBlank { "Muses" }
     val secondary = if (line?.text?.isNotBlank() == true) {
-        line.translation?.takeIf { showTranslation && it.isNotBlank() }
+        when {
+            showTranslation -> line.translation?.takeIf { it.isNotBlank() }
+            showRomanization -> line.romanization?.takeIf { it.isNotBlank() }
+            else -> null
+        }
     } else snapshot.artist?.takeIf { it.isNotBlank() }
     val words = if (line?.timingKind == LyricTimingKind.Precise && line.text.isNotBlank()) {
         val untrimmed = line.syllables.joinToString("") { it.text }

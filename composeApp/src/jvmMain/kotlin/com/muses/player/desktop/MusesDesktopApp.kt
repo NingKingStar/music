@@ -1,6 +1,13 @@
 package com.muses.player.desktop
 
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import coil3.ImageLoader
+import coil3.compose.setSingletonImageLoaderFactory
+import coil3.disk.DiskCache
+import coil3.memory.MemoryCache
+import com.muses.player.core.data.platform.PlatformDirs
+import java.io.File
+import okio.Path.Companion.toPath
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +38,19 @@ fun WindowScope.MusesDesktopApp(
     onClose: () -> Unit,
 ) {
     KoinApplication(configuration = koinConfiguration { modules(desktopAppModules) }) {
+        setSingletonImageLoaderFactory { context ->
+            ImageLoader.Builder(context)
+                .memoryCache {
+                    MemoryCache.Builder().maxSizePercent(context, 0.20).build()
+                }
+                .diskCache {
+                    DiskCache.Builder()
+                        .directory(File(PlatformDirs.cacheDir(), "image_cache").absolutePath.toPath())
+                        .maxSizeBytes(512L * 1024L * 1024L)
+                        .build()
+                }
+                .build()
+        }
         MusesTheme {
             DesktopLyricsWindow()
             Box(modifier = Modifier.fillMaxSize()) {

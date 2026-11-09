@@ -69,8 +69,8 @@ import com.muses.player.core.data.repository.UserPlaylistStore
 import com.muses.player.core.data.repository.SongRepository
 import com.muses.player.core.data.repository.FavoriteSongsStore
 import com.muses.player.core.download.DownloadQueueStore
-import com.muses.player.core.lyrics.DesktopLyricsSnapshot
-import com.muses.player.core.lyrics.DesktopLyricsState
+import com.muses.player.core.lyrics.model.LyricsDocument
+import com.muses.player.core.data.repository.LyricSupplementMode
 import com.muses.player.core.search.OnlineSearchService
 import com.muses.player.core.search.PlatformSearchOutcome
 import com.muses.player.core.data.repository.SettingsRepository
@@ -99,7 +99,7 @@ import com.muses.player.desktop.library.DesktopLocalLibraryScanner
 import com.muses.player.desktop.update.DesktopUpdater
 import com.muses.player.desktop.update.DesktopUpdateInfo
 import com.muses.player.feature.home.HomeViewModel
-import com.muses.player.feature.player.lyric.LyricsParser
+import com.muses.player.feature.player.PlayerViewModel
 import com.muses.player.download.DownloadManager
 import com.muses.player.feature.sources.LxImportValidation
 import com.muses.player.feature.sources.LxScriptItem
@@ -147,6 +147,7 @@ fun DesktopShell(onExit: () -> Unit = {}) {
     val onlineCharts = koinInject<OnlineChartService>()
     val downloadManager = koinInject<DownloadManager>()
     val homeViewModel: HomeViewModel = koinViewModel()
+    val playerViewModel: PlayerViewModel = koinViewModel()
     val playlists by playlistStore.playlists.collectAsState(initial = emptyList())
     val localSongs by songRepository.observeSongs().collectAsState(initial = emptyList())
     val favoriteState by favoritesStore.state.collectAsState()
@@ -154,6 +155,9 @@ fun DesktopShell(onExit: () -> Unit = {}) {
     val recentSearches by searchHistoryStore.entries.collectAsState(initial = emptyList())
     val downloadTasks by downloadManager.tasks.collectAsState(initial = emptyList())
     val homeState by homeViewModel.state.collectAsState()
+    val lyricsDocument by playerViewModel.lyricsDocument.collectAsState()
+    val lyricsLoading by playerViewModel.lyricsLoading.collectAsState()
+    val stickyCover by playerViewModel.stickyCover.collectAsState()
 
     var section by remember { mutableStateOf(DesktopSection.DISCOVER) }
     var selectedPlaylistId by remember { mutableStateOf<String?>(null) }
@@ -253,18 +257,6 @@ fun DesktopShell(onExit: () -> Unit = {}) {
         section == DesktopSection.DOWNLOADED -> downloadedSongs.filterByQuery(query)
         section == DesktopSection.SEARCH -> searchSongs.filterByQuery(query)
         else -> emptyList()
-    }
-    val desktopPlayback = remember { DesktopRuntime.playerHook() }
-    val desktopSongId by desktopPlayback.currentSongId.collectAsState()
-    val desktopSong = knownSongs.firstOrNull { it.id == desktopSongId }
-    val desktopLyrics = remember(desktopSong?.id, desktopSong?.lyrics) {
-        LyricsParser.parseDocument(desktopSong?.lyrics)
-    }
-    LaunchedEffect(desktopSongId, desktopLyrics) {
-        DesktopLyricsState.publish(
-            if (desktopSong == null) DesktopLyricsSnapshot()
-            else DesktopLyricsSnapshot(desktopSong.id, desktopSong.title, desktopSong.artist, desktopLyrics),
-        )
     }
 
     fun openPlaylist(id: String) {
@@ -499,6 +491,7 @@ fun DesktopShell(onExit: () -> Unit = {}) {
                 }
                 DesktopPlayerBar(
                     knownSongs = knownSongs,
+                    coverOverride = stickyCover,
                     isLiked = { song -> favoriteState.isLiked(song) },
                     onToggleLike = ::toggleFavorite,
                     panel = playerPanel,
@@ -513,6 +506,9 @@ fun DesktopShell(onExit: () -> Unit = {}) {
                 DesktopSidePanelView(
                     panel = playerPanel,
                     knownSongs = knownSongs,
+                    lyricsDocument = lyricsDocument,
+                    lyricsLoading = lyricsLoading,
+                    onRetryLyrics = { DesktopRuntime.playerHook().searchOnlineLyrics() },
                     onClose = { playerPanel = DesktopPlayerPanel.NONE },
                 )
             }
@@ -613,9 +609,15 @@ fun DesktopShell(onExit: () -> Unit = {}) {
 private fun DesktopSidePanelView(
     panel: DesktopPlayerPanel,
     knownSongs: List<Song>,
+    lyricsDocument: LyricsDocument?,
+    lyricsLoading: Boolean,
+    onRetryLyrics: () -> Unit,
     onClose: () -> Unit,
 ) {
     val scheme = MiuixTheme.colorScheme
+    val settings = koinInject<SettingsRepository>()
+    val supplementMode by settings.lyricSupplementMode.collectAsState(LyricSupplementMode.Translation)
+    val scope = rememberCoroutineScope()
     val hook = remember { DesktopRuntime.playerHook() }
     val queueIds by hook.queueSongIds.collectAsState()
     val currentId by hook.currentSongId.collectAsState()
@@ -645,6 +647,26 @@ private fun DesktopSidePanelView(
             )
             if (panel == DesktopPlayerPanel.QUEUE && queueIds.isNotEmpty()) {
                 Text("${queueIds.size} 首", fontSize = 11.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(end = 6.dp))
+            }
+            if (panel == DesktopPlayerPanel.LYRICS) {
+                Text(
+                    "译",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (supplementMode == LyricSupplementMode.Translation) scheme.primary else scheme.onBackgroundVariant,
+                    modifier = Modifier.clickable(role = Role.Button) {
+                        scope.launch { settings.setLyricTranslationEnabled(supplementMode != LyricSupplementMode.Translation) }
+                    }.padding(horizontal = 7.dp, vertical = 4.dp),
+                )
+                Text(
+                    "音",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (supplementMode == LyricSupplementMode.Romanization) scheme.primary else scheme.onBackgroundVariant,
+                    modifier = Modifier.clickable(role = Role.Button) {
+                        scope.launch { settings.setLyricRomanizationEnabled(supplementMode != LyricSupplementMode.Romanization) }
+                    }.padding(horizontal = 7.dp, vertical = 4.dp),
+                )
             }
             DesktopIconButton(TablerIcons.Close, "关闭面板", 28.dp, onClick = onClose)
         }
@@ -718,10 +740,7 @@ private fun DesktopSidePanelView(
                 }
             }
             DesktopPlayerPanel.LYRICS -> {
-                val document = remember(currentSong?.id, currentSong?.lyrics) {
-                    LyricsParser.parseDocument(currentSong?.lyrics)
-                }
-                val lines = document?.lines.orEmpty()
+                val lines = lyricsDocument?.lines.orEmpty()
                 val activeIndex = if (lines.isEmpty()) -1 else lines.indexOfLast { it.timeMs <= position }.coerceAtLeast(0)
                 val listState = rememberLazyListState()
                 LaunchedEffect(activeIndex) {
@@ -737,7 +756,9 @@ private fun DesktopSidePanelView(
                         Text(currentSong.title, fontSize = 17.sp, fontWeight = FontWeight.Medium, color = scheme.onBackground, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(currentSong.artist ?: "未知歌手", fontSize = 12.sp, color = scheme.onBackgroundVariant, modifier = Modifier.padding(top = 4.dp))
                         Spacer(Modifier.height(22.dp))
-                        when (val state = lyricsSearch) {
+                        if (lyricsLoading) {
+                            Text("正在加载歌词…", fontSize = 11.sp, color = scheme.onBackgroundVariant)
+                        } else when (val state = lyricsSearch) {
                             is com.muses.player.desktop.playback.DesktopLyricsSearchState.Searching ->
                                 Text("正在搜索歌词…", fontSize = 11.sp, color = scheme.onBackgroundVariant)
                             is com.muses.player.desktop.playback.DesktopLyricsSearchState.Done ->
@@ -745,9 +766,9 @@ private fun DesktopSidePanelView(
                             is com.muses.player.desktop.playback.DesktopLyricsSearchState.Failed -> {
                                 Text(state.message, fontSize = 11.sp, color = scheme.onBackgroundVariant)
                                 Spacer(Modifier.height(10.dp))
-                                SecondaryButton("再试一次") { hook.searchOnlineLyrics() }
+                                SecondaryButton("再试一次", onRetryLyrics)
                             }
-                            else -> SecondaryButton("搜索在线歌词") { hook.searchOnlineLyrics() }
+                            else -> SecondaryButton("搜索在线歌词", onRetryLyrics)
                         }
                         Spacer(Modifier.weight(1f))
                     }
@@ -763,8 +784,15 @@ private fun DesktopSidePanelView(
                                     color = if (active) scheme.primary else scheme.onBackground.copy(alpha = 0.55f),
                                     lineHeight = if (active) 22.sp else 18.sp,
                                 )
-                                line.translation?.takeIf { it.isNotBlank() }?.let { translation ->
-                                    Text(translation, fontSize = 10.sp, color = scheme.onBackgroundVariant.copy(alpha = 0.75f), modifier = Modifier.padding(top = 2.dp))
+                                if (supplementMode == LyricSupplementMode.Translation) {
+                                    line.translation?.takeIf { it.isNotBlank() }?.let { translation ->
+                                        Text(translation, fontSize = 11.sp, color = scheme.onBackgroundVariant.copy(alpha = 0.80f), modifier = Modifier.padding(top = 2.dp))
+                                    }
+                                }
+                                if (supplementMode == LyricSupplementMode.Romanization) {
+                                    line.romanization?.takeIf { it.isNotBlank() }?.let { romanization ->
+                                        Text(romanization, fontSize = 11.sp, color = scheme.onBackgroundVariant.copy(alpha = 0.80f), modifier = Modifier.padding(top = 2.dp))
+                                    }
                                 }
                             }
                         }

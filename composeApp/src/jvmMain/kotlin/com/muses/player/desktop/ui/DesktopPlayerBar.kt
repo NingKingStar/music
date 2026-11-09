@@ -52,6 +52,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 fun DesktopPlayerBar(
     knownSongs: List<Song>,
+    coverOverride: String?,
     isLiked: (Song) -> Boolean,
     onToggleLike: (Song) -> Unit,
     panel: DesktopPlayerPanel,
@@ -70,7 +71,7 @@ fun DesktopPlayerBar(
     val song = knownSongs.firstOrNull { it.id == currentId }
     val title = meta?.title?.takeIf { it.isNotBlank() } ?: song?.title ?: "未在播放"
     val artist = meta?.artist?.takeIf { it.isNotBlank() } ?: song?.artist ?: "选择一首歌开始播放"
-    val cover = meta?.coverUri ?: song?.coverUri
+    val cover = coverOverride ?: meta?.coverUri ?: song?.coverUri
     val mode = PlaybackMode.from(config)
     val hasSong = currentId != null || meta != null
     val effectiveDuration = duration.coerceAtLeast(1L)

@@ -54,6 +54,7 @@ fun DesktopLyricsWindow() {
     val settings = koinInject<SettingsRepository>()
     val enabled by settings.desktopLyricsEnabled.collectAsState(false)
     val translation by settings.lyricTranslationEnabled.collectAsState(true)
+    val romanization by settings.lyricRomanizationEnabled.collectAsState(false)
     val coverAccentEnabled by settings.coverContentColorEnabled.collectAsState(true)
     val songs = koinInject<SongRepository>()
     val colors = koinInject<CoverAccentColorProvider>()
@@ -94,7 +95,7 @@ fun DesktopLyricsWindow() {
         }
     }
     if (showing) {
-        val text = desktopLyricsText(snapshot, position, translation, playing)
+        val text = desktopLyricsText(snapshot, position, translation, playing, romanization)
         val close = { scope.launch { settings.setDesktopLyricsEnabled(false) }; Unit }
         fun scheduleHide() {
             hideJob?.cancel()
