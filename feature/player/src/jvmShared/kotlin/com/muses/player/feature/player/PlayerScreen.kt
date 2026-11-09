@@ -711,7 +711,11 @@ private fun PhoneImmersiveLayout(
                     isTablet = false,
                     maxWidth = maxWidth,
                     maxHeight = maxHeight,
-                    chorusMs = remember(lyricsDocument) { lyricsDocument?.chorusRanges?.firstOrNull()?.startMs },
+                    chorusMs = remember(lyricsDocument) {
+                    lyricsDocument?.chorusRanges?.firstOrNull()?.startMs
+                        ?: com.muses.player.core.lyrics.detectChorusRanges(lyricsDocument?.lines.orEmpty())
+                            .firstOrNull()?.startMs
+                },
                     onSeekDragActive = { isSeekDragging = it },
                     contentAlpha = { contentAlphaFor(transitionProgress()) },
                 )
@@ -861,7 +865,11 @@ private fun TabletImmersiveLayout(
                 onOpenEditMeta = onOpenEditMeta,
                 screenWidth = maxWidth,
                 screenHeight = maxHeight,
-                chorusMs = remember(lyricsDocument) { lyricsDocument?.chorusRanges?.firstOrNull()?.startMs },
+                chorusMs = remember(lyricsDocument) {
+                    lyricsDocument?.chorusRanges?.firstOrNull()?.startMs
+                        ?: com.muses.player.core.lyrics.detectChorusRanges(lyricsDocument?.lines.orEmpty())
+                            .firstOrNull()?.startMs
+                },
             )
         }
     }

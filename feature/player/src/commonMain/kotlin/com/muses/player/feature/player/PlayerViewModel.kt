@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.muses.player.core.data.dao.SongDao
 import com.muses.player.core.data.db.SongEntity
+import com.muses.player.core.data.mapper.toDomain
 import com.muses.player.core.lyrics.LyricsMatcher
 import com.muses.player.core.lyrics.chorusRangesFor
 import com.muses.player.core.lyrics.observeDocuments
@@ -462,7 +463,11 @@ class PlayerViewModel constructor(
         val document = withContext(Dispatchers.Default) {
             LyricsParser.parseDocument(song.lyrics)
         }
-        if (song.id == playback.currentSongId.value) applyLyricsDocument(document)
+        if (song.id == playback.currentSongId.value) {
+            applyLyricsDocument(document)
+            // 本地/已保存曲目也要能补副歌与译文（之前只挂在在线曲目那条路上）。
+            requestLyricExtrasForCurrent()
+        }
     }
 
     /** 歌词、封面各自加载；歌词缓存/平台/脚本渐进发布，不再串行等待封面。 */
@@ -483,7 +488,7 @@ class PlayerViewModel constructor(
             val embedded = withContext(Dispatchers.Default) { LyricsParser.parseDocument(song.lyrics) }
             if (embedded != null && song.id == playback.currentSongId.value) {
                 applyLyricsDocument(embedded)
-                lyricsMatcher?.let { requestLyricExtras(song, it) }
+                requestLyricExtrasForCurrent()
             }
             val matcher = lyricsMatcher
             if (matcher != null) {
@@ -491,7 +496,7 @@ class PlayerViewModel constructor(
                 matcher.observeDocuments(song, onlineMetadataResolver).collect { update ->
                     if (song.id == playback.currentSongId.value) {
                         applyLyricsDocument(update.document, update.translationSource, update.romanizationSource)
-                        requestLyricExtras(song, matcher)
+                        requestLyricExtrasForCurrent()
                         if (first) {
                             println("MusesLyrics first=${update.elapsedMs}ms cache=${update.fromCache} source=${update.source} translation=${update.translationSource}")
                             first = false
@@ -505,7 +510,7 @@ class PlayerViewModel constructor(
                 val doc = parseScriptLyrics(script)
                 if (doc != null && song.id == playback.currentSongId.value) {
                     applyLyricsDocument(doc)
-                    lyricsMatcher?.let { requestLyricExtras(song, it) }
+                    requestLyricExtrasForCurrent()
                 }
             }
         } finally {
@@ -513,50 +518,51 @@ class PlayerViewModel constructor(
         }
     }
 
-    /** 副歌 + 译文/音译补全：只在本曲确实缺东西时发请求，每首歌只尝试一次。 */
-    private val extrasRequested = mutableSetOf<String>()
-    private fun requestLyricExtras(song: com.muses.player.core.model.Song, matcher: LyricsMatcher) {
+    /** 副歌 + 译文/音译补全：从当前播放信息出发，与歌词来自哪条通道无关。 */
+    private val extrasAttempted = mutableSetOf<String>()
+    private fun requestLyricExtrasForCurrent() {
+        lyricsMatcher ?: return
+        val meta = _nowPlayingMeta.value ?: return
+        val songId = meta.songId?.takeIf { it.isNotBlank() } ?: return
         val document = _lyricsDocument.value ?: return
         val needChorus = document.chorusRanges.isEmpty()
         val needAnnotation = com.muses.player.core.lyrics.needsAnnotationEnrichment(document, _lyricTranslationSource.value)
         if (!needChorus && !needAnnotation) return
-        if (!extrasRequested.add("${song.id}|$needChorus|$needAnnotation")) return
+        if (!extrasAttempted.add("$songId|$needChorus|$needAnnotation")) return
+        playerLog("extras: id=$songId chorus=$needChorus annotation=$needAnnotation lines=${document.lines.size}")
+        val query = com.muses.player.core.model.lyrics.OnlineLyricsQuery(
+            songId = songId,
+            title = meta.title.orEmpty(),
+            artist = meta.artist,
+            durationSec = duration.value.takeIf { it > 0 }?.let { it / 1000.0 },
+        )
         viewModelScope.launch {
-            if (needChorus) loadChorusRanges(song, matcher)
+            if (needChorus) {
+                val native = com.muses.player.core.lyrics.provider.fetchWyChorusRanges(query)
+                if (playback.currentSongId.value == songId) {
+                    val current = _lyricsDocument.value
+                    if (current != null) {
+                        val ranges = native.ifEmpty { com.muses.player.core.lyrics.detectChorusRanges(current.lines) }
+                        playerLog("chorus: id=$songId native=${native.size} fallback=${if (native.isEmpty()) ranges.size else 0} lines=${current.lines.size}")
+                        if (ranges.isNotEmpty() && current.chorusRanges != ranges) {
+                            _lyricsDocument.value = current.copy(chorusRanges = ranges)
+                        }
+                    }
+                }
+            }
             if (!needAnnotation) return@launch
-            val donor = matcher.annotationDonorFor(song) ?: return@launch
-            if (playback.currentSongId.value != song.id) return@launch
+            val donor = com.muses.player.core.lyrics.provider.fetchWyAnnotationDonor(query)
+            playerLog("donor: id=$songId lines=${donor?.lines?.size} translations=${donor?.lines?.count { !it.translation.isNullOrBlank() }}")
+            if (donor == null || playback.currentSongId.value != songId) return@launch
             val current = _lyricsDocument.value ?: return@launch
-            if (!com.muses.player.core.lyrics.needsAnnotationEnrichment(current, _lyricTranslationSource.value)) return@launch
             val (enriched, source) = com.muses.player.core.lyrics.enrichWithWyDonor(
                 current, donor, _lyricTranslationSource.value,
             )
-            if (enriched == current) return@launch
-            _lyricTranslationSource.value = source
-            _lyricsDocument.value = enriched
-            println("MusesLyricExtras id=${song.id} chorus=${current.chorusRanges.size} translation=$source")
-        }
-    }
-
-    /** 副歌区间：优先平台原生（目前只有网易），拿不到用歌词重复段落兜底；每首歌只查一次网络。 */
-    private val chorusNativeCache = mutableMapOf<String, List<com.muses.player.core.model.lyrics.ChorusRange>>()
-    private fun loadChorusRanges(song: com.muses.player.core.model.Song, matcher: LyricsMatcher) {
-        val document = _lyricsDocument.value ?: return
-        if (document.chorusRanges.isNotEmpty()) return
-        val cached = chorusNativeCache[song.id]
-        viewModelScope.launch {
-            val native = cached ?: matcher.chorusRangesFor(song).also {
-                chorusNativeCache[song.id] = it
-                if (chorusNativeCache.size > 32) chorusNativeCache.remove(chorusNativeCache.keys.first())
+            playerLog("enriched: translations=${enriched.lines.count { !it.translation.isNullOrBlank() }} readings=${enriched.lines.count { !it.romanization.isNullOrBlank() }} changed=${enriched != current}")
+            if (enriched != current) {
+                _lyricTranslationSource.value = source
+                _lyricsDocument.value = enriched
             }
-            if (playback.currentSongId.value != song.id) return@launch
-            val current = _lyricsDocument.value ?: return@launch
-            val fallback = if (native.isEmpty()) com.muses.player.core.lyrics.detectChorusRanges(current.lines) else emptyList()
-            val ranges = native.ifEmpty { fallback }
-            // 歌词可能会从内嵌 LRC 升级为在线逐字文档；本首歌没结果就不锁定，下次升级再试。
-            println("MusesChorus id=${song.id} native=${native.size} fallback=${fallback.size} lines=${current.lines.size}")
-            if (ranges.isEmpty() || current.chorusRanges == ranges) return@launch
-            _lyricsDocument.value = current.copy(chorusRanges = ranges)
         }
     }
 

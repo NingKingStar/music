@@ -169,6 +169,7 @@ suspend fun fetchWyAnnotationDonor(query: OnlineLyricsQuery): com.muses.player.c
     val id = query.platformId("wy", "songmid", "songId", "id")?.toLongOrNull()
         ?: wyIdForTrack(query.songId)
         ?: searchWySongIds(wyChorusHttp, query).firstOrNull()
+        ?: looseWySongId(wyChorusHttp, query)
         ?: return null
     val body = fetchWyEapiLyric(wyChorusHttp, id) ?: return null
     val main = body.obj("lrc")?.str("lyric").orEmpty()
@@ -183,6 +184,28 @@ suspend fun fetchWyAnnotationDonor(query: OnlineLyricsQuery): com.muses.player.c
     )
 }
 
+/** 搜索落空时的宽松兜底：只用标题搜，取时长最接近的一条（副歌/译文用，不参与歌词匹配）。 */
+private suspend fun looseWySongId(http: LyricsHttp, query: OnlineLyricsQuery): Long? {
+    val title = query.title.substringBefore('(').substringBefore('（').trim().ifBlank { query.title }
+    if (title.isBlank()) return null
+    val url = "https://music.163.com/api/search/get/web?s=" +
+        java.net.URLEncoder.encode(title, "UTF-8") + "&type=1&offset=0&total=true&limit=10"
+    val body = runCatching { http.getJson(url, WY_HEADERS) as? JsonObject }.getOrNull() ?: return null
+    val songs = body.obj("result")?.arrCompat("songs").orEmpty()
+    if (songs.isEmpty()) return null
+    val target = query.durationSec?.times(1000)?.toLong()
+    data class Cand(val id: Long, val durationMs: Long?)
+    val candidates = songs.mapNotNull { s ->
+        val id = (s["id"] as? JsonPrimitive)?.content?.toLongOrNull() ?: return@mapNotNull null
+        Cand(id, s.str("duration")?.toLongOrNull())
+    }
+    if (candidates.isEmpty()) return null
+    if (target == null) return candidates.first().id
+    return candidates.minByOrNull { candidate ->
+        candidate.durationMs?.let { kotlin.math.abs(it - target) } ?: Long.MAX_VALUE
+    }?.id
+}
+
 /**
  * 网易原生副歌区间（`/api/song/chorus`）。
  *
@@ -193,7 +216,8 @@ suspend fun fetchWyAnnotationDonor(query: OnlineLyricsQuery): com.muses.player.c
 suspend fun fetchWyChorusRanges(http: LyricsHttp, query: OnlineLyricsQuery): List<com.muses.player.core.model.lyrics.ChorusRange> {
     val id = query.platformId("wy", "songmid", "songId", "id")?.toLongOrNull()
         ?: wyIdForTrack(query.songId)
-        ?: searchWySongIds(http, query).firstOrNull() ?: return emptyList()
+        ?: searchWySongIds(http, query).firstOrNull()
+        ?: looseWySongId(http, query) ?: return emptyList()
     return fetchWyChorusById(http, id)
 }
 
