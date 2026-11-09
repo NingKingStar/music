@@ -10,6 +10,7 @@ import com.muses.player.core.lyrics.chorusRangesFor
 import com.muses.player.core.lyrics.observeDocuments
 import com.muses.player.core.lyrics.annotationDonorFor
 import com.muses.player.core.lyrics.model.LyricsDocument
+import com.muses.player.core.lyrics.model.withPseudoTiming
 import com.muses.player.core.lyrics.parser.LxLyricParser
 import com.muses.player.core.model.Song
 import com.muses.player.core.model.online.NoOpOnlineTrackMetadataResolver
@@ -675,7 +676,9 @@ class PlayerViewModel constructor(
         com.muses.player.core.lyrics.DesktopLyricsState.publish(
             com.muses.player.core.lyrics.DesktopLyricsSnapshot(meta?.songId, meta?.title.orEmpty(), meta?.artist, document),
         )
-        currentLines = document?.toAmllLyricLines() ?: emptyList()
+        currentLines = document?.withPseudoTiming()?.toAmllLyricLines() ?: emptyList()
+        // 诊断：确认当前文档到底有没有逐字时间轴（行级歌词靠伪时间轴）。
+        playerLog("doc: lines=${document?.lines?.size ?: 0} syllables=${document?.lines?.count { it.syllables.isNotEmpty() } ?: 0} pseudo=${document?.pseudoTimingAllowed}")
         lastLineEndMs = currentLines.maxOfOrNull { it.endTime.toLong() } ?: Long.MAX_VALUE
         _hasTranslation.value = currentLines.any {
             it.translatedLyric.isNotEmpty() || it.romanLyric.isNotEmpty()

@@ -115,8 +115,10 @@ data class LyricsDocument(
  * prevents a plain LRC fallback from becoming an expensive fake word-by-word
  * document when the provider did not actually return word timing.
  */
-fun LyricsDocument.withPseudoTiming(): LyricsDocument {
-    if (!pseudoTimingAllowed) return this
+fun LyricsDocument.withPseudoTiming(force: Boolean = false): LyricsDocument {
+    // force：用户主动打开了「逐字高亮」，就应该按他的意愿生成伪时间轴，
+    // 而不是被解析器的 pseudoTimingAllowed=false（LRC/脚本歌词的保守默认值）挡住。
+    if (!force && !pseudoTimingAllowed) return this
     return copy(
         lines = lines.mapIndexed { index, line ->
             if (line.syllables.isNotEmpty() || line.text.isBlank()) return@mapIndexed line

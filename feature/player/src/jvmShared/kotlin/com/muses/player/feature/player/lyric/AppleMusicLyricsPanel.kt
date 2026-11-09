@@ -177,7 +177,7 @@ internal fun AppleMusicLyricsPanel(
     // 逐字高亮开启时，行级歌词也要能被逐字推进（伪时间轴）：否则开关看起来“没效果”。
     val pseudoTimingEnabled = wordHighlightEnabled
     val renderedDocument = remember(document, pseudoTimingEnabled) {
-        if (pseudoTimingEnabled) document?.withPseudoTiming() else document
+        if (pseudoTimingEnabled) document?.withPseudoTiming(force = true) else document
     }
     val lines = renderedDocument?.lines.orEmpty()
     val hasSyllableSync = remember(renderedDocument) { lines.any { it.syllables.isNotEmpty() } }

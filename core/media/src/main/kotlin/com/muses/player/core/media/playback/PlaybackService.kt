@@ -428,6 +428,8 @@ class PlaybackService : MediaSessionService() {
             var lastId: String? = null
             var fallback = com.muses.player.core.lyrics.DesktopLyricsSnapshot()
             var lastRead = 0L
+            // 暂停/被打断的起点：超过 5 秒就收起状态栏歌词，恢复播放再出现。
+            var statusPausedSince: Long? = null
             while (true) {
                 delay(200)
                 if (!enabled) {
@@ -470,7 +472,15 @@ class PlaybackService : MediaSessionService() {
                     val text = com.muses.player.core.lyrics.desktopLyricsText(
                         snapshot, player.currentPosition, translation, player.isPlaying)
                     if (player.currentMediaItem?.mediaId != id) continue
-                    bar.update(text)
+                    // 暂停或被其他媒体打断超过 5 秒后收起状态栏歌词；恢复播放立即重新出现。
+                    val statusClock = android.os.SystemClock.elapsedRealtime()
+                    if (!player.isPlaying) {
+                        if (statusPausedSince == null) statusPausedSince = statusClock
+                        if (statusClock - (statusPausedSince ?: statusClock) >= 5_000L) bar.hide() else bar.update(text)
+                    } else {
+                        statusPausedSince = null
+                        bar.update(text)
+                    }
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
