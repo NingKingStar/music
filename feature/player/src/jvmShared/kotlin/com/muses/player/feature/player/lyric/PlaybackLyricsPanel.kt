@@ -59,7 +59,8 @@ fun PlaybackLyricsPanel(
     val onTranslation: (Boolean) -> Unit = { value -> scope.launch { settings.setLyricTranslationEnabled(value) } }
     val onRomanization: (Boolean) -> Unit = { value -> scope.launch { settings.setLyricRomanizationEnabled(value) } }
     // 副歌节点：只用平台给的真实区间（网易 /api/song/chorus），没有就不显示入口。
-    val chorusStart = remember(document) { document?.chorusRanges?.firstOrNull()?.startMs }
+    val chorusRanges = remember(document) { document?.chorusRanges.orEmpty() }
+    val latestPosition by rememberUpdatedState(positionMs)
     Column(modifier) {
         LyricsPanel(document, positionMs, isPlaying, onSeek,
             Modifier.weight(1f).fillMaxWidth(), onAtTopChange)
@@ -67,9 +68,11 @@ fun PlaybackLyricsPanel(
             onTranslation = { if (translated) onTranslation(!translation) },
             onRomanization = { if (romanized) onRomanization(!romanization) },
             onSettings = { showSettings = true }, onPlayPause = onPlayPause,
-            chorusMs = chorusStart, onChorus = {
-                chorusStart?.let { start ->
-                    onSeek(start)
+            chorusAvailable = chorusRanges.isNotEmpty(), onChorus = {
+                // 优先跳到下一段副歌；已经到最后一段之后就回到第一段。
+                val target = chorusRanges.firstOrNull { it.startMs > latestPosition } ?: chorusRanges.firstOrNull()
+                target?.let { range ->
+                    onSeek(range.startMs)
                     // 对齐 QQ 音乐的「从副歌开始播放」：跳过去并继续放。
                     if (!isPlaying) onPlayPause()
                 }
@@ -106,14 +109,14 @@ internal fun LyricsToolbar(
     translation: Boolean, romanization: Boolean, translated: Boolean, romanized: Boolean,
     playing: Boolean, onTranslation: () -> Unit, onRomanization: () -> Unit,
     onSettings: () -> Unit, onPlayPause: () -> Unit, modifier: Modifier = Modifier, loading: Boolean = false,
-    chorusMs: Long? = null, onChorus: () -> Unit = {},
+    chorusAvailable: Boolean = false, onChorus: () -> Unit = {},
 ) {
     val ink = LocalPlayerContentColor.current
     Row(modifier.height(64.dp), verticalAlignment = Alignment.CenterVertically) {
         if (translated) LyricToolButton("译", translation, true, "显示译词", ink, onTranslation)
         if (romanized) LyricToolButton("音", romanization, true, "显示音译", ink, onRomanization)
         LyricToolButton("词", false, true, "歌词设置", ink, onSettings)
-        chorusMs?.let { _ -> ChorusJumpChip(ink, onChorus) }
+        if (chorusAvailable) ChorusJumpChip(ink, onChorus)
         Spacer(Modifier.weight(1f))
         MusesIconButton(onClick = onPlayPause,
             modifier = Modifier.clip(androidx.compose.foundation.shape.CircleShape),

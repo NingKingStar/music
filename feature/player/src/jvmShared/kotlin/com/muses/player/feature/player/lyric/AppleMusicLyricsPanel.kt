@@ -3,19 +3,24 @@ package com.muses.player.feature.player.lyric
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -35,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.TransformOrigin
@@ -72,6 +78,28 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+
+/** 副歌段落标记：一根短竖线 + 「副歌」小字，跟随行的透明度变化，不抢主歌词。 */
+@Composable
+private fun ChorusSectionTag(color: androidx.compose.ui.graphics.Color, alpha: Float) {
+    Row(
+        Modifier.padding(bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(width = 2.dp, height = 11.dp)
+                .clip(RoundedCornerShape(1.dp))
+                .background(color.copy(alpha = alpha)),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = "副歌",
+            color = color.copy(alpha = alpha),
+            fontSize = 10.sp,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+        )
+    }
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -646,6 +674,12 @@ internal fun AppleMusicLyricsPanel(
                             interlude != null
                         val isActiveLine = index in activeTimedLineIndexes
                         val fp = focusProgress[index].value.coerceIn(0f, 1f)
+                        // 副歌段落：区间起点落在这一行时，行首给一个「副歌」小标（网易那种段落标记）。
+                        // 只信平台给的真实区间，没有就不画。
+                        val nextLineStartMs = lines.getOrNull(index + 1)?.timeMs ?: Long.MAX_VALUE
+                        val isChorusAnchor = document?.chorusRanges?.any {
+                            it.startMs >= line.timeMs && it.startMs < nextLineStartMs
+                        } == true
                         val effectiveFocus = fp
                         val lastActiveIndex = activeTimedLineIndexes.maxOrNull() ?: visualFocusIndex
                         val distanceBlur = AmllScrollPhysics.blur(
@@ -677,6 +711,8 @@ internal fun AppleMusicLyricsPanel(
                                 )
                             }.blur(distanceBlurForQuality.dp, BlurredEdgeTreatment.Unbounded),
                         ) {
+
+                        if (isChorusAnchor) ChorusSectionTag(contentColor, alpha = (.45f + .45f * fp).coerceIn(.45f, .9f))
 
                         if (showsInterlude) {
                             LyricInterludeCountdown(
