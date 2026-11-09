@@ -43,6 +43,9 @@ interface SettingsRepository {
 
     /** 媒体通知歌词开关：开启后通知标题显示歌词，艺术家显示「标题-艺术家」 */
     val notificationLyricsEnabled: Flow<Boolean>
+
+    /** 状态栏歌词：在屏幕顶部状态栏区域显示当前一句，不拦截触摸。 */
+    val statusBarLyricsEnabled: Flow<Boolean>
     /** 桌面悬浮歌词，默认关闭。 */
     val desktopLyricsEnabled: Flow<Boolean>
     val desktopLyricsLocked: Flow<Boolean>
@@ -83,6 +86,8 @@ interface SettingsRepository {
     suspend fun setMiniPlayerLyricsEnabled(enabled: Boolean)
 
     suspend fun setNotificationLyricsEnabled(enabled: Boolean)
+
+    suspend fun setStatusBarLyricsEnabled(enabled: Boolean)
     suspend fun setDesktopLyricsEnabled(enabled: Boolean)
 
     suspend fun setCoverContentColorEnabled(enabled: Boolean)
@@ -191,6 +196,9 @@ class DataStoreSettingsRepository constructor(
 
     override val notificationLyricsEnabled: Flow<Boolean>
         get() = dataStore.data.map { prefs -> prefs[NOTIFICATION_LYRICS_ENABLED] == true }
+
+    override val statusBarLyricsEnabled: Flow<Boolean>
+        get() = dataStore.data.map { prefs -> prefs[STATUS_BAR_LYRICS_ENABLED] == true }
     override val desktopLyricsEnabled: Flow<Boolean>
         get() = dataStore.data.map { prefs -> prefs[DESKTOP_LYRICS_ENABLED] == true }
     override val desktopLyricsLocked: Flow<Boolean>
@@ -258,6 +266,10 @@ class DataStoreSettingsRepository constructor(
 
     override suspend fun setNotificationLyricsEnabled(enabled: Boolean) {
         dataStore.edit { prefs -> prefs[NOTIFICATION_LYRICS_ENABLED] = enabled }
+    }
+
+    override suspend fun setStatusBarLyricsEnabled(enabled: Boolean) {
+        dataStore.edit { prefs -> prefs[STATUS_BAR_LYRICS_ENABLED] = enabled }
     }
     override suspend fun setDesktopLyricsEnabled(enabled: Boolean) {
         dataStore.edit { prefs -> prefs[DESKTOP_LYRICS_ENABLED] = enabled }
@@ -338,6 +350,7 @@ class DataStoreSettingsRepository constructor(
         val AUTO_SCRAPE_ENABLED = booleanPreferencesKey("auto_scrape_enabled")
         val MINI_PLAYER_LYRICS_ENABLED = booleanPreferencesKey("mini_player_lyrics_enabled")
         val NOTIFICATION_LYRICS_ENABLED = booleanPreferencesKey("notification_lyrics_enabled")
+    val STATUS_BAR_LYRICS_ENABLED = booleanPreferencesKey("status_bar_lyrics_enabled")
         val DESKTOP_LYRICS_ENABLED = booleanPreferencesKey("desktop_lyrics_enabled")
         val DESKTOP_LYRICS_LOCKED = booleanPreferencesKey("desktop_lyrics_locked")
         val DESKTOP_LYRICS_FONT_SIZE = longPreferencesKey("desktop_lyrics_font_size")

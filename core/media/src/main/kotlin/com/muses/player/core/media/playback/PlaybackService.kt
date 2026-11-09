@@ -45,6 +45,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import com.muses.player.core.webdav.STREAMING_OKHTTP_QUALIFIER
 import okhttp3.OkHttpClient
@@ -85,6 +86,7 @@ class PlaybackService : MediaSessionService() {
 
     private var saveJob: kotlinx.coroutines.Job? = null
     private var desktopLyricsOverlay: DesktopLyricsOverlay? = null
+    private var statusBarLyricsOverlay: StatusBarLyricsOverlay? = null
 
     /** 音量增益（LoudnessEnhancer）：服务生命周期内常驻，随设置即时下发 */
     private val volumeBoost by lazy { VolumeBoostController(serviceScope) }
@@ -340,6 +342,7 @@ class PlaybackService : MediaSessionService() {
         // 09-07 通知歌词模式：监听开关 + 歌词 + 播放位置，动态替换 MediaMetadata
         startNotificationLyricsMonitoring(player)
         startDesktopLyricsMonitoring(player)
+        startStatusBarLyricsMonitoring(player)
         startVolumeBoostMonitoring()
         startOnlineStallMonitoring(player)
         // ExoPlayer 只能在主线程访问：恢复流程在后台查库，player 操作投递主线程
@@ -403,6 +406,81 @@ class PlaybackService : MediaSessionService() {
     // ── 通知歌词模式 ──
 
     /** 桌面歌词独立于通知开关，优先复用播放页，页面被回收时由服务兜底。 */
+    /** 状态栏歌词：独立于桌面歌词开关，只把当前一句推到顶部状态栏条里，不拦截触摸。 */
+    private fun startStatusBarLyricsMonitoring(player: Player) {
+        val bar = StatusBarLyricsOverlay(this)
+        statusBarLyricsOverlay = bar
+        serviceScope.launch {
+            var enabled = false
+            var translation = true
+            var size = 13
+            var color = 0L
+            // 字号沿用桌面歌词的设置并适当缩小，颜色跟桌面歌词保持一致。
+            launch { settingsRepository.statusBarLyricsEnabled.collect { enabled = it; if (!it) bar.hide() } }
+            launch { settingsRepository.lyricTranslationEnabled.collect { translation = it } }
+            launch {
+                settingsRepository.desktopLyricsFontSize.collect {
+                    size = (it * 0.6f).toInt().coerceIn(11, 18)
+                    bar.setStyle(size, color)
+                }
+            }
+            launch { settingsRepository.desktopLyricsColor.collect { color = it; bar.setStyle(size, color) } }
+            var lastId: String? = null
+            var fallback = com.muses.player.core.lyrics.DesktopLyricsSnapshot()
+            var lastRead = 0L
+            while (true) {
+                delay(200)
+                if (!enabled) {
+                    lastId = null
+                    continue
+                }
+                if (!DesktopLyricsGate.canOverlay(this@PlaybackService)) {
+                    bar.hide()
+                    lastId = null
+                    continue
+                }
+                val id = player.currentMediaItem?.mediaId
+                if (id == null) {
+                    bar.hide()
+                    lastId = null
+                    continue
+                }
+                try {
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (id != lastId) {
+                        bar.hide()
+                        fallback = com.muses.player.core.lyrics.DesktopLyricsSnapshot(
+                            id, player.mediaMetadata.title?.toString().orEmpty(), player.mediaMetadata.artist?.toString())
+                        lastId = id
+                        lastRead = 0L
+                    }
+                    val shared = com.muses.player.core.lyrics.DesktopLyricsState.snapshot.value
+                    if ((shared.songId != id || shared.document == null) && now - lastRead >= 2_000L) {
+                        lastRead = now
+                        val song = songRepository.getSong(id)
+                            ?: com.muses.player.core.model.online.OnlineTrackSession.find(id)
+                        if (song != null) {
+                            val document = withContext(Dispatchers.Default) {
+                                com.muses.player.feature.player.lyric.LyricsParser.parseDocument(song.lyrics)
+                            }
+                            fallback = com.muses.player.core.lyrics.DesktopLyricsSnapshot(id, song.title, song.artist, document)
+                        }
+                    }
+                    val snapshot = com.muses.player.core.lyrics.desktopLyricsSnapshot(id, shared, fallback)
+                    val text = com.muses.player.core.lyrics.desktopLyricsText(
+                        snapshot, player.currentPosition, translation, player.isPlaying)
+                    if (player.currentMediaItem?.mediaId != id) continue
+                    bar.update(text)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    errorLogStore.log(ErrorLogStore.Level.WARN, "StatusBarLyrics", "状态栏歌词更新失败：${e.message}", e)
+                    lastId = null
+                }
+            }
+        }
+    }
+
     private fun startDesktopLyricsMonitoring(player: Player) {
         var lyricSize = 22
         var lyricColor = 0L
@@ -421,12 +499,23 @@ class PlaybackService : MediaSessionService() {
             while (isActive) {
                 val granted = DesktopLyricsGate.canOverlay(this@PlaybackService)
                 if (granted) {
-                    if (DesktopLyricsGate.pending(this@PlaybackService)) {
-                        DesktopLyricsGate.clearPending(this@PlaybackService)
-                        settingsRepository.setDesktopLyricsEnabled(true)
+                    when (DesktopLyricsGate.pendingTarget(this@PlaybackService)) {
+                        DesktopLyricsGate.TARGET_STATUS_BAR -> {
+                            DesktopLyricsGate.clearPending(this@PlaybackService)
+                            settingsRepository.setStatusBarLyricsEnabled(true)
+                        }
+                        DesktopLyricsGate.TARGET_DESKTOP -> {
+                            DesktopLyricsGate.clearPending(this@PlaybackService)
+                            settingsRepository.setDesktopLyricsEnabled(true)
+                        }
                     }
-                } else if (settingsRepository.desktopLyricsEnabled.first()) {
-                    settingsRepository.setDesktopLyricsEnabled(false)
+                } else {
+                    if (settingsRepository.desktopLyricsEnabled.first()) {
+                        settingsRepository.setDesktopLyricsEnabled(false)
+                    }
+                    if (settingsRepository.statusBarLyricsEnabled.first()) {
+                        settingsRepository.setStatusBarLyricsEnabled(false)
+                    }
                 }
                 delay(if (DesktopLyricsGate.pending(this@PlaybackService)) 700L else 5_000L)
             }
@@ -1228,6 +1317,8 @@ class PlaybackService : MediaSessionService() {
         }
         desktopLyricsOverlay?.hide()
         desktopLyricsOverlay = null
+        statusBarLyricsOverlay?.hide()
+        statusBarLyricsOverlay = null
         volumeBoost.release()
         serviceScope.cancel()
         mediaSession?.run {

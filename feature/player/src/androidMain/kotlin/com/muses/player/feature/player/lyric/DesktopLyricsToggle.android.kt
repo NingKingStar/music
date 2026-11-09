@@ -47,6 +47,7 @@ import com.muses.player.core.platform.DesktopLyricsGate
 import com.muses.player.core.ui.components.MusesIconButton
 import com.muses.player.core.ui.components.MusesIconButtonSize
 import com.muses.player.core.ui.components.MusesSnackbar
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import top.yukonga.miuix.kmp.basic.Icon
@@ -66,7 +67,7 @@ actual fun DesktopLyricsActionButton(tint: Color, modifier: Modifier) {
     val scope = rememberCoroutineScope()
     DesktopLyricsPermissionGuard(settings, enabled)
     MusesIconButton(
-        onClick = { toggleDesktopLyrics(context, settings, scope, enabled) },
+        onClick = { toggleOverlayLyrics(context, scope, enabled, DesktopLyricsGate.TARGET_DESKTOP, settings::setDesktopLyricsEnabled) },
         imageVector = if (enabled) Tabler.Outline.PictureInPictureOn else Tabler.Outline.PictureInPicture,
         contentDescription = if (enabled) "关闭桌面歌词" else "开启桌面歌词",
         modifier = modifier,
@@ -86,6 +87,7 @@ actual fun DesktopLyricsSettingSection(ink: Color, secondary: Color, modifier: M
     val settings = koinInject<SettingsRepository>()
     val enabled by settings.desktopLyricsEnabled.collectAsState(false)
     val locked by settings.desktopLyricsLocked.collectAsState(false)
+    val statusBar by settings.statusBarLyricsEnabled.collectAsState(false)
     val size by settings.desktopLyricsFontSize.collectAsState(22L)
     val color by settings.desktopLyricsColor.collectAsState(0L)
     val scope = rememberCoroutineScope()
@@ -104,10 +106,25 @@ actual fun DesktopLyricsSettingSection(ink: Color, secondary: Color, modifier: M
                 checked = enabled,
                 onCheckedChange = { value ->
                     if (!value) scope.launch { settings.setDesktopLyricsEnabled(false) }
-                    else toggleDesktopLyrics(context, settings, scope, false)
+                    else toggleOverlayLyrics(context, scope, false, DesktopLyricsGate.TARGET_DESKTOP, settings::setDesktopLyricsEnabled)
                 },
                 colors = lyricsSwitchColors(ink),
                 modifier = Modifier.semantics { contentDescription = "桌面歌词" },
+            )
+        }
+        SettingLine(
+            title = "状态栏歌词",
+            summary = if (statusBar) "已开启 · 顶部状态栏显示当前一句，不挡操作" else "顶部状态栏显示当前一句，不拦截触摸",
+            ink = ink, secondary = secondary,
+        ) {
+            Switch(
+                checked = statusBar,
+                onCheckedChange = { value ->
+                    if (!value) scope.launch { settings.setStatusBarLyricsEnabled(false) }
+                    else toggleOverlayLyrics(context, scope, false, DesktopLyricsGate.TARGET_STATUS_BAR, settings::setStatusBarLyricsEnabled)
+                },
+                colors = lyricsSwitchColors(ink),
+                modifier = Modifier.semantics { contentDescription = "状态栏歌词" },
             )
         }
         if (enabled) {
@@ -190,19 +207,21 @@ private fun DotGlyph(icon: androidx.compose.ui.graphics.vector.ImageVector, labe
  * 开启/关闭桌面歌词；没有悬浮窗权限时直接把系统授权页拉起来，并用「待开启」标记
  * 交给播放服务在授权返回后自动补开——不要求用户自己回设置里再点一次。
  */
-private fun toggleDesktopLyrics(
+private fun toggleOverlayLyrics(
     context: android.content.Context,
-    settings: SettingsRepository,
     scope: kotlinx.coroutines.CoroutineScope,
     enabled: Boolean,
+    target: String,
+    apply: suspend (Boolean) -> Unit,
 ) {
     when {
-        enabled -> scope.launch { settings.setDesktopLyricsEnabled(false) }
-        DesktopLyricsGate.canOverlay(context) -> scope.launch { settings.setDesktopLyricsEnabled(true) }
+        enabled -> scope.launch { apply(false) }
+        DesktopLyricsGate.canOverlay(context) -> scope.launch { apply(true) }
         else -> {
-            DesktopLyricsGate.markPending(context)
+            DesktopLyricsGate.markPending(context, target)
             if (DesktopLyricsGate.openPermissionPage(context)) {
-                MusesSnackbar.show("允许「显示在其他应用上层」后会自动开启桌面歌词")
+                val name = if (target == DesktopLyricsGate.TARGET_STATUS_BAR) "状态栏歌词" else "桌面歌词"
+                MusesSnackbar.show("允许「显示在其他应用上层」后会自动开启$name")
             } else {
                 DesktopLyricsGate.clearPending(context)
                 MusesSnackbar.show("无法打开悬浮窗授权页，请在系统设置中授权")
@@ -228,6 +247,9 @@ private fun DesktopLyricsPermissionGuard(settings: SettingsRepository, enabled: 
             if (latestEnabled) {
                 scope.launch { settings.setDesktopLyricsEnabled(false) }
                 MusesSnackbar.show("桌面歌词已关闭：缺少悬浮窗权限")
+            }
+            scope.launch {
+                if (settings.statusBarLyricsEnabled.first()) settings.setStatusBarLyricsEnabled(false)
             }
         }
         owner.lifecycle.addObserver(observer)

@@ -12,6 +12,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -23,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.muses.player.core.data.repository.SettingsRepository
 import com.muses.player.core.data.repository.LyricSupplementMode
+import com.muses.player.core.lyrics.detectChorusStartMs
 import com.muses.player.core.lyrics.model.LyricsDocument
 import com.muses.player.core.ui.components.*
 import com.muses.player.core.ui.icons.TablerIcons
@@ -57,6 +59,8 @@ fun PlaybackLyricsPanel(
     }
     val onTranslation: (Boolean) -> Unit = { value -> scope.launch { settings.setLyricTranslationEnabled(value) } }
     val onRomanization: (Boolean) -> Unit = { value -> scope.launch { settings.setLyricRomanizationEnabled(value) } }
+    // 副歌节点：只在能从歌词里推断出重复段落时出现，点击直接跳过去。
+    val chorusMs = remember(document) { detectChorusStartMs(document?.lines.orEmpty()) }
     Column(modifier) {
         LyricsPanel(document, positionMs, isPlaying, onSeek,
             Modifier.weight(1f).fillMaxWidth(), onAtTopChange)
@@ -64,6 +68,7 @@ fun PlaybackLyricsPanel(
             onTranslation = { if (translated) onTranslation(!translation) },
             onRomanization = { if (romanized) onRomanization(!romanization) },
             onSettings = { showSettings = true }, onPlayPause = onPlayPause,
+            chorusMs = chorusMs, onSeek = onSeek,
             modifier = Modifier.fillMaxWidth().navigationBarsPadding(), loading = loading)
     }
     if (showSettings) ImmersiveLyricsSettingsSheet(
@@ -96,18 +101,39 @@ internal fun LyricsToolbar(
     translation: Boolean, romanization: Boolean, translated: Boolean, romanized: Boolean,
     playing: Boolean, onTranslation: () -> Unit, onRomanization: () -> Unit,
     onSettings: () -> Unit, onPlayPause: () -> Unit, modifier: Modifier = Modifier, loading: Boolean = false,
+    chorusMs: Long? = null, onSeek: (Long) -> Unit = {},
 ) {
     val ink = LocalPlayerContentColor.current
     Row(modifier.height(64.dp), verticalAlignment = Alignment.CenterVertically) {
         if (translated) LyricToolButton("译", translation, true, "显示译词", ink, onTranslation)
         if (romanized) LyricToolButton("音", romanization, true, "显示音译", ink, onRomanization)
         LyricToolButton("词", false, true, "歌词设置", ink, onSettings)
+        chorusMs?.let { target -> ChorusJumpChip(ink) { onSeek(target) } }
         Spacer(Modifier.weight(1f))
         MusesIconButton(onClick = onPlayPause,
             modifier = Modifier.clip(androidx.compose.foundation.shape.CircleShape),
             imageVector = if (playing) TablerIcons.PauseFill else TablerIcons.PlayFill,
             contentDescription = if (playing) "暂停" else "播放",
             size = MusesIconButtonSize.LG, tint = ink)
+    }
+}
+
+@Composable
+private fun ChorusJumpChip(ink: Color, onClick: () -> Unit) {
+    // 小胶囊而不是单字按钮：这是一个动作，不是开关，写成字才不会被当成谜语。
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    Box(Modifier.padding(start = 2.dp).height(26.dp).clip(RoundedCornerShape(8.dp))
+        .background(ink.copy(alpha = if (pressed) .18f else 0f))
+        .border(1.dp, ink.copy(alpha = .48f), RoundedCornerShape(8.dp))
+        .clickable(interactionSource = interaction, indication = null, role = Role.Button,
+            onClickLabel = "跳到副歌") { onClick() }
+        .padding(horizontal = 9.dp), contentAlignment = Alignment.Center) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(5.dp).background(ink.copy(alpha = .85f), CircleShape))
+            Spacer(Modifier.width(5.dp))
+            Text("副歌", color = ink.copy(alpha = .92f), fontSize = 12.sp, lineHeight = 14.sp, fontWeight = FontWeight.Medium)
+        }
     }
 }
 

@@ -108,7 +108,7 @@ internal class MediaNotificationActions(
                         val enabled = settings.desktopLyricsEnabled.first()
                         if (!enabled && !DesktopLyricsGate.canOverlay(context)) {
                             // 没授权就直接把系统授权页拉起来，授权返回后由播放服务自动补开。
-                            DesktopLyricsGate.markPending(context)
+                            DesktopLyricsGate.markPending(context, DesktopLyricsGate.TARGET_DESKTOP)
                             if (DesktopLyricsGate.openPermissionPage(context)) {
                                 showMessage("请允许「显示在其他应用上层」，返回后会自动开启桌面歌词")
                             } else {
