@@ -27,6 +27,9 @@ class MusesApplication : Application(), Configuration.Provider {
         // 但全仓从未有调用点（Android 侧此前无消费者）。lxsdk 的音源脚本目录是首个消费者，
         // 未初始化会崩：IllegalArgumentException: initPlatformDirs 未初始化就调用 appDataDir。
         PlatformDirs.initPlatformDirs(filesDir, cacheDir)
+        // 诊断日志落盘：ColorOS 对 release 包屏蔽 logcat，改用外部文件读取
+        com.muses.player.feature.player.PlayerLogFile.file =
+            java.io.File(getExternalFilesDir(null) ?: filesDir, "player-log.txt")
         startKoin {
             androidContext(this@MusesApplication)
             modules(appModules)

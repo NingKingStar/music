@@ -162,48 +162,74 @@ internal fun rememberWyIdForTrack(trackId: String, id: Long) {
 fun wyIdForTrack(trackId: String): Long? = wyIdByTrack[trackId]
 
 /**
- * 用同一个网易 id 取译文/音译，供其他音源的歌词补齐。
- * 网易对同一首歌通常同时给 tlyric（翻译）与 romalrc（读音）。
+ * 逐个候选返回网易译文/音译 donor。
+ *
+ * 同一首歌在网易常有多个版本（原版 / 伴奏 / 现场 / 不同发行），各版本歌词行文不同，
+ * 逐行合并会全部对不上。所以这里把候选都交出去，由调用方挑“能合上最多行”的那一版。
  */
-suspend fun fetchWyAnnotationDonor(query: OnlineLyricsQuery): com.muses.player.core.lyrics.model.LyricsDocument? {
-    val id = query.platformId("wy", "songmid", "songId", "id")?.toLongOrNull()
-        ?: wyIdForTrack(query.songId)
-        ?: searchWySongIds(wyChorusHttp, query).firstOrNull()
-        ?: looseWySongId(wyChorusHttp, query)
-        ?: return null
-    val body = fetchWyEapiLyric(wyChorusHttp, id) ?: return null
-    val main = body.obj("lrc")?.str("lyric").orEmpty()
-    val translation = body.obj("tlyric")?.str("lyric")?.takeIf { it.isNotBlank() }
-        ?: body.obj("ytlrc")?.str("lyric")?.takeIf { it.isNotBlank() }
-    val romanization = body.obj("romalrc")?.str("lyric")?.takeIf { it.isNotBlank() }
-        ?: body.obj("yromalrc")?.str("lyric")?.takeIf { it.isNotBlank() }
-    if (translation == null && romanization == null) return null
-    if (main.isBlank()) return null
-    return com.muses.player.core.lyrics.parser.LrcLyricsParser.parse(
-        main, translation = translation.orEmpty(), romanization = romanization.orEmpty(),
-    )
+suspend fun wyAnnotationDonors(
+    query: OnlineLyricsQuery,
+    onDebug: (String) -> Unit = {},
+): List<com.muses.player.core.lyrics.model.LyricsDocument> {
+    val candidates = wyCandidates(wyChorusHttp, query)
+    onDebug("candidates=$candidates")
+    val donors = mutableListOf<com.muses.player.core.lyrics.model.LyricsDocument>()
+    for (id in candidates) {
+        val body = fetchWyEapiLyric(wyChorusHttp, id)
+        onDebug("id=$id keys=${body?.keys?.joinToString(",")} lrc=${body?.obj("lrc")?.str("lyric")?.length}")
+        if (body == null) continue
+        val main = body.obj("lrc")?.str("lyric").orEmpty()
+        if (main.isBlank()) continue
+        val translation = body.obj("tlyric")?.str("lyric")?.takeIf { it.isNotBlank() }
+            ?: body.obj("ytlrc")?.str("lyric")?.takeIf { it.isNotBlank() }
+        val romanization = body.obj("romalrc")?.str("lyric")?.takeIf { it.isNotBlank() }
+            ?: body.obj("yromalrc")?.str("lyric")?.takeIf { it.isNotBlank() }
+        if (translation == null && romanization == null) continue
+        com.muses.player.core.lyrics.parser.LrcLyricsParser.parse(
+            main, translation = translation.orEmpty(), romanization = romanization.orEmpty(),
+        )?.let { donors.add(it) }
+    }
+    return donors
 }
 
-/** 搜索落空时的宽松兜底：只用标题搜，取时长最接近的一条（副歌/译文用，不参与歌词匹配）。 */
-private suspend fun looseWySongId(http: LyricsHttp, query: OnlineLyricsQuery): Long? {
+/** 兼容入口：取第一个带译文/读音的网易版本。 */
+suspend fun fetchWyAnnotationDonor(
+    query: OnlineLyricsQuery,
+    onDebug: (String) -> Unit = {},
+): com.muses.player.core.lyrics.model.LyricsDocument? = wyAnnotationDonors(query, onDebug).firstOrNull()
+
+/** 伴奏/纯音乐版本要排除：它们同样能搜到时长的最近匹配，但没有歌词。 */
+private fun isInstrumentalTitle(name: String?): Boolean {
+    val text = name?.lowercase() ?: return false
+    return listOf("inst", "instrumental", "off vocal", "karaoke", "伴奏", "纯音乐").any { text.contains(it) }
+}
+
+/** 宽松候选：只用标题搜，按与当前曲时长差排序，排除伴奏版本。 */
+private suspend fun looseWySongIds(http: LyricsHttp, query: OnlineLyricsQuery): List<Long> {
     val title = query.title.substringBefore('(').substringBefore('（').trim().ifBlank { query.title }
-    if (title.isBlank()) return null
+    if (title.isBlank()) return emptyList()
     val url = "https://music.163.com/api/search/get/web?s=" +
         java.net.URLEncoder.encode(title, "UTF-8") + "&type=1&offset=0&total=true&limit=10"
-    val body = runCatching { http.getJson(url, WY_HEADERS) as? JsonObject }.getOrNull() ?: return null
+    val body = runCatching { http.getJson(url, WY_HEADERS) as? JsonObject }.getOrNull() ?: return emptyList()
     val songs = body.obj("result")?.arrCompat("songs").orEmpty()
-    if (songs.isEmpty()) return null
     val target = query.durationSec?.times(1000)?.toLong()
-    data class Cand(val id: Long, val durationMs: Long?)
-    val candidates = songs.mapNotNull { s ->
+    data class Cand(val id: Long, val diff: Long)
+    return songs.mapNotNull { s ->
         val id = (s["id"] as? JsonPrimitive)?.content?.toLongOrNull() ?: return@mapNotNull null
-        Cand(id, s.str("duration")?.toLongOrNull())
-    }
-    if (candidates.isEmpty()) return null
-    if (target == null) return candidates.first().id
-    return candidates.minByOrNull { candidate ->
-        candidate.durationMs?.let { kotlin.math.abs(it - target) } ?: Long.MAX_VALUE
-    }?.id
+        if (isInstrumentalTitle(s.str("name"))) return@mapNotNull null
+        val duration = s.str("duration")?.toLongOrNull()
+        val diff = if (target != null && duration != null) kotlin.math.abs(duration - target) else Long.MAX_VALUE
+        Cand(id, diff)
+    }.sortedBy { it.diff }.map { it.id }
+}
+
+/** 网易候选 id：平台 id → 歌词匹配记录的 id → 严格搜索 → 宽松搜索，去重后最多 4 个。 */
+private suspend fun wyCandidates(http: LyricsHttp, query: OnlineLyricsQuery): List<Long> {
+    val direct = query.platformId("wy", "songmid", "songId", "id")?.toLongOrNull()
+        ?: wyIdForTrack(query.songId)
+    val strict = runCatching { searchWySongIds(http, query) }.getOrDefault(emptyList())
+    val loose = runCatching { looseWySongIds(http, query) }.getOrDefault(emptyList())
+    return (listOfNotNull(direct) + strict + loose).distinct().take(4)
 }
 
 /**
@@ -214,11 +240,11 @@ private suspend fun looseWySongId(http: LyricsHttp, query: OnlineLyricsQuery): L
  * 任何失败都返回空表，不抛错、不阻断歌词展示。
  */
 suspend fun fetchWyChorusRanges(http: LyricsHttp, query: OnlineLyricsQuery): List<com.muses.player.core.model.lyrics.ChorusRange> {
-    val id = query.platformId("wy", "songmid", "songId", "id")?.toLongOrNull()
-        ?: wyIdForTrack(query.songId)
-        ?: searchWySongIds(http, query).firstOrNull()
-        ?: looseWySongId(http, query) ?: return emptyList()
-    return fetchWyChorusById(http, id)
+    for (id in wyCandidates(http, query)) {
+        val ranges = fetchWyChorusById(http, id)
+        if (ranges.isNotEmpty()) return ranges
+    }
+    return emptyList()
 }
 
 suspend fun fetchWyChorusRanges(query: OnlineLyricsQuery): List<com.muses.player.core.model.lyrics.ChorusRange> =

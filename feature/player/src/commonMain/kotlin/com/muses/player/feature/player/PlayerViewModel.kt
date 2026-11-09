@@ -551,17 +551,15 @@ class PlayerViewModel constructor(
                 }
             }
             if (!needAnnotation) return@launch
-            val donor = com.muses.player.core.lyrics.provider.fetchWyAnnotationDonor(query)
-            playerLog("donor: id=$songId lines=${donor?.lines?.size} translations=${donor?.lines?.count { !it.translation.isNullOrBlank() }}")
-            if (donor == null || playback.currentSongId.value != songId) return@launch
+            if (playback.currentSongId.value != songId) return@launch
             val current = _lyricsDocument.value ?: return@launch
-            val (enriched, source) = com.muses.player.core.lyrics.enrichWithWyDonor(
-                current, donor, _lyricTranslationSource.value,
-            )
-            playerLog("enriched: translations=${enriched.lines.count { !it.translation.isNullOrBlank() }} readings=${enriched.lines.count { !it.romanization.isNullOrBlank() }} changed=${enriched != current}")
-            if (enriched != current) {
-                _lyricTranslationSource.value = source
-                _lyricsDocument.value = enriched
+            val merged = com.muses.player.core.lyrics.enrichLyricsWithWy(
+                current, query, _lyricTranslationSource.value,
+            ) { playerLog("wy: $it") }
+            playerLog("enriched: changed=${merged != null}")
+            if (merged != null) {
+                _lyricTranslationSource.value = merged.second
+                _lyricsDocument.value = merged.first
             }
         }
     }
