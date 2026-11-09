@@ -163,8 +163,7 @@ fun OnlineSearchScreen(
                 PlatformPill("专辑", state.category == SearchCategory.ALBUMS, { viewModel.setCategory(SearchCategory.ALBUMS) })
                 PlatformPill("歌手", state.category == SearchCategory.ARTISTS, { viewModel.setCategory(SearchCategory.ARTISTS) })
                 Spacer(Modifier.weight(1f))
-                if (state.category == SearchCategory.ALL && state.searched) com.muses.player.core.ui.components.MusesTextButton(
-                    text = "排序", primary = state.originalFirst, onClick = { showSort = true })
+                if (state.category == SearchCategory.ALL && state.searched) PlatformPill("排序", state.originalFirst, { showSort = true })
             }
 
             // 提示横幅（如「该平台无可用脚本」）：点按可关闭
@@ -274,12 +273,14 @@ fun OnlineSearchScreen(
                                     lyric = lyricMatches.firstOrNull { it.song in matchedLocal },
                                     onClick = { viewModel.playGroupedResult(first) })
                                 if (group.size + matchedLocal.size > 1) {
-                                    Text(
-                                        text = "更多音源 · ${group.size + matchedLocal.size} 个  ›",
-                                        fontSize = 12.sp, color = scheme.primary,
-                                        modifier = Modifier.fillMaxWidth().clickable { selectedSourceSong = first }
-                                            .padding(start = SongListLayout.horizontalPadding + SongListLayout.coverSize + SongListLayout.coverGap, bottom = 8.dp, top = 4.dp),
-                                    )
+                                    com.muses.player.core.ui.components.MusesPill(
+    text = "更多音源 · ${group.size + matchedLocal.size} 个",
+    onClick = { selectedSourceSong = first },
+    modifier = Modifier.padding(
+        start = SongListLayout.horizontalPadding + SongListLayout.coverSize + SongListLayout.coverGap,
+        top = 2.dp, bottom = 8.dp,
+    ),
+)
                                 }
                             }
                         }

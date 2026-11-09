@@ -100,6 +100,15 @@ fun enrichWithWyDonor(
     return read.document to translated.translationSource
 }
 
+/** 挑一行够长、能当“歌词搜索”关键字的原文（优先外文，中文断句也能搜）。 */
+private fun lyricProbeOf(base: LyricsDocument): String? = base.lines.asSequence()
+    .map { it.text.trim() }
+    .filter { it.length >= 6 }
+    .filterNot { it.startsWith("[") || it.contains("http") }
+    .sortedByDescending { it.length }
+    .firstOrNull()
+    ?.take(40)
+
 /** 用网易候选逐个尝试，选合得最多的那一版（不按“第一个能用”）。 */
 suspend fun enrichLyricsWithWy(
     base: LyricsDocument,
@@ -109,7 +118,7 @@ suspend fun enrichLyricsWithWy(
 ): Pair<LyricsDocument, String?>? {
     var best: LyricsDocument? = null
     var bestFilled = 0
-    for (donor in com.muses.player.core.lyrics.provider.wyAnnotationDonors(query, onDebug)) {
+    for (donor in com.muses.player.core.lyrics.provider.wyAnnotationDonors(query, onDebug, lyricProbeOf(base))) {
         val (merged, filled) = mergeAnnotations(base, donor)
         onDebug("merge donor=${donor.lines.size} filled=$filled coverage=${(annotationCoverage(merged) * 100).toInt()}%")
         if (filled > bestFilled) {

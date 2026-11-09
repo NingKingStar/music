@@ -32,8 +32,8 @@ internal fun RecentSearches(history: List<String>, onSearch: (String) -> Unit,
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("最近搜索", modifier = Modifier.weight(1f), style = MiuixTheme.textStyles.title4)
             if (history.isNotEmpty()) {
-                MusesTextButton(text = if (editing) "完成" else "管理", onClick = { editing = !editing })
-                if (editing) MusesTextButton(text = "清空", onClick = { confirmClear = true })
+                MusesPill(text = if (editing) "完成" else "管理", selected = editing, onClick = { editing = !editing })
+                if (editing) MusesPill(text = "清空", onClick = { confirmClear = true })
             }
         }
         if (history.isEmpty()) {
@@ -53,7 +53,7 @@ internal fun RecentSearches(history: List<String>, onSearch: (String) -> Unit,
                     }
                 }
             }
-            if (history.size > 8 && !editing) MusesTextButton(text = if (expanded) "收起" else "展开全部",
+            if (history.size > 8 && !editing) MusesPill(text = if (expanded) "收起" else "展开全部",
                 onClick = { expanded = !expanded })
         }
     }

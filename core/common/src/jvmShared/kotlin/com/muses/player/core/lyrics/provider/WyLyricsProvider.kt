@@ -171,20 +171,48 @@ fun wyIdForTrack(trackId: String): Long? = wyIdByTrack[trackId]
 suspend fun wyAnnotationDonors(
     query: OnlineLyricsQuery,
     onDebug: (String) -> Unit = {},
+    /** 当前歌词里的一行原文：按标题搜不到时，用它做“歌词搜索”找回原曲（中文译名歌常见）。 */
+    lyricProbe: String? = null,
 ): List<com.muses.player.core.lyrics.model.LyricsDocument> {
     val candidates = wyCandidates(wyChorusHttp, query)
     onDebug("candidates=$candidates")
-    // 并发取候选（最多 3 个），单个 2 秒封顶：慢网下最坏 2 秒左右返回，不会串行拖到好几秒。
-    return kotlinx.coroutines.coroutineScope {
-        val scope = this
-        candidates.take(3).map { id ->
-            scope.async {
-                kotlinx.coroutines.withTimeoutOrNull(2_000L) {
-                    runCatching { loadWyDonor(wyChorusHttp, id) }.getOrNull()
-                }
+    val byTitle = loadDonorsConcurrently(candidates)
+    if (byTitle.isNotEmpty()) return byTitle
+    if (lyricProbe.isNullOrBlank()) return emptyList()
+    val lyricIds = runCatching { searchWyByLyric(wyChorusHttp, lyricProbe) }.getOrDefault(emptyList())
+    onDebug("lyricSearch=$lyricIds")
+    if (lyricIds.isEmpty()) return emptyList()
+    return loadDonorsConcurrently(lyricIds)
+}
+
+/** 并发取候选（最多 3 个），单个 2 秒封顶：慢网下最坏 2 秒左右返回。 */
+private suspend fun loadDonorsConcurrently(
+    ids: List<Long>,
+): List<com.muses.player.core.lyrics.model.LyricsDocument> = kotlinx.coroutines.coroutineScope {
+    val scope = this
+    ids.take(3).map { id ->
+        scope.async {
+            kotlinx.coroutines.withTimeoutOrNull(2_000L) {
+                runCatching { loadWyDonor(wyChorusHttp, id) }.getOrNull()
             }
-        }.mapNotNull { it.await() }
-    }
+        }
+    }.mapNotNull { it.await() }
+}
+
+/** 按歌词文本搜歌（网易 type=1006）：不依赖歌名，能救回“中文译名”的歌曲。 */
+private suspend fun searchWyByLyric(http: LyricsHttp, line: String): List<Long> {
+    val keyword = line.trim().take(40)
+    if (keyword.length < 4) return emptyList()
+    val url = "https://music.163.com/api/search/get/web?s=" +
+        java.net.URLEncoder.encode(keyword, "UTF-8") + "&type=1006&offset=0&total=true&limit=6"
+    val body = runCatching { http.getJson(url, WY_HEADERS) as? JsonObject }.getOrNull() ?: return emptyList()
+    val songs = body.obj("result")?.arrCompat("songs").orEmpty()
+    data class Cand(val id: Long, val diff: Long)
+    return songs.mapNotNull { s ->
+        val id = (s["id"] as? JsonPrimitive)?.content?.toLongOrNull() ?: return@mapNotNull null
+        if (isInstrumentalTitle(s.str("name"))) return@mapNotNull null
+        Cand(id, s.str("duration")?.toLongOrNull() ?: Long.MAX_VALUE)
+    }.map { it.id }
 }
 
 /** 取单个 id 的译文/读音 donor（无则 null）。 */
