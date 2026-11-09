@@ -7,6 +7,7 @@ import com.muses.player.core.data.db.SongEntity
 import com.muses.player.core.lyrics.LyricsMatcher
 import com.muses.player.core.lyrics.chorusRangesFor
 import com.muses.player.core.lyrics.observeDocuments
+import com.muses.player.core.lyrics.annotationDonorFor
 import com.muses.player.core.lyrics.model.LyricsDocument
 import com.muses.player.core.lyrics.parser.LxLyricParser
 import com.muses.player.core.model.Song
@@ -480,14 +481,17 @@ class PlayerViewModel constructor(
         }
         try {
             val embedded = withContext(Dispatchers.Default) { LyricsParser.parseDocument(song.lyrics) }
-            if (embedded != null && song.id == playback.currentSongId.value) applyLyricsDocument(embedded)
+            if (embedded != null && song.id == playback.currentSongId.value) {
+                applyLyricsDocument(embedded)
+                lyricsMatcher?.let { requestLyricExtras(song, it) }
+            }
             val matcher = lyricsMatcher
             if (matcher != null) {
                 var first = true
                 matcher.observeDocuments(song, onlineMetadataResolver).collect { update ->
                     if (song.id == playback.currentSongId.value) {
                         applyLyricsDocument(update.document, update.translationSource, update.romanizationSource)
-                        loadChorusRanges(song, matcher)
+                        requestLyricExtras(song, matcher)
                         if (first) {
                             println("MusesLyrics first=${update.elapsedMs}ms cache=${update.fromCache} source=${update.source} translation=${update.translationSource}")
                             first = false
@@ -499,10 +503,38 @@ class PlayerViewModel constructor(
             } else {
                 val script = ref?.let { withTimeoutOrNull(2_000) { onlineMetadataResolver.resolveLyrics(it) } }
                 val doc = parseScriptLyrics(script)
-                if (doc != null && song.id == playback.currentSongId.value) applyLyricsDocument(doc)
+                if (doc != null && song.id == playback.currentSongId.value) {
+                    applyLyricsDocument(doc)
+                    lyricsMatcher?.let { requestLyricExtras(song, it) }
+                }
             }
         } finally {
             if (song.id == playback.currentSongId.value) _lyricsLoading.value = false
+        }
+    }
+
+    /** 副歌 + 译文/音译补全：只在本曲确实缺东西时发请求，每首歌只尝试一次。 */
+    private val extrasRequested = mutableSetOf<String>()
+    private fun requestLyricExtras(song: com.muses.player.core.model.Song, matcher: LyricsMatcher) {
+        val document = _lyricsDocument.value ?: return
+        val needChorus = document.chorusRanges.isEmpty()
+        val needAnnotation = com.muses.player.core.lyrics.needsAnnotationEnrichment(document, _lyricTranslationSource.value)
+        if (!needChorus && !needAnnotation) return
+        if (!extrasRequested.add("${song.id}|$needChorus|$needAnnotation")) return
+        viewModelScope.launch {
+            if (needChorus) loadChorusRanges(song, matcher)
+            if (!needAnnotation) return@launch
+            val donor = matcher.annotationDonorFor(song) ?: return@launch
+            if (playback.currentSongId.value != song.id) return@launch
+            val current = _lyricsDocument.value ?: return@launch
+            if (!com.muses.player.core.lyrics.needsAnnotationEnrichment(current, _lyricTranslationSource.value)) return@launch
+            val (enriched, source) = com.muses.player.core.lyrics.enrichWithWyDonor(
+                current, donor, _lyricTranslationSource.value,
+            )
+            if (enriched == current) return@launch
+            _lyricTranslationSource.value = source
+            _lyricsDocument.value = enriched
+            println("MusesLyricExtras id=${song.id} chorus=${current.chorusRanges.size} translation=$source")
         }
     }
 

@@ -151,6 +151,38 @@ private suspend fun fetchWyPublicLyric(http: LyricsHttp, id: Long): JsonObject? 
 /** 副歌区间缓存的共享 HTTP（副歌请求很轻，复用一份即可）。 */
 private val wyChorusHttp by lazy { LyricsHttp() }
 
+/** 本曲（Muses 内部 songId）→ 网易歌曲 id。歌词匹配时记下，副歌/译文补全都复用同一个 id。 */
+private val wyIdByTrack = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+internal fun rememberWyIdForTrack(trackId: String, id: Long) {
+    if (trackId.isNotBlank() && id > 0) wyIdByTrack[trackId] = id
+}
+
+/** 取本曲已经匹配到的网易 id（没有就 null，不在这里发搜索）。 */
+fun wyIdForTrack(trackId: String): Long? = wyIdByTrack[trackId]
+
+/**
+ * 用同一个网易 id 取译文/音译，供其他音源的歌词补齐。
+ * 网易对同一首歌通常同时给 tlyric（翻译）与 romalrc（读音）。
+ */
+suspend fun fetchWyAnnotationDonor(query: OnlineLyricsQuery): com.muses.player.core.lyrics.model.LyricsDocument? {
+    val id = query.platformId("wy", "songmid", "songId", "id")?.toLongOrNull()
+        ?: wyIdForTrack(query.songId)
+        ?: searchWySongIds(wyChorusHttp, query).firstOrNull()
+        ?: return null
+    val body = fetchWyEapiLyric(wyChorusHttp, id) ?: return null
+    val main = body.obj("lrc")?.str("lyric").orEmpty()
+    val translation = body.obj("tlyric")?.str("lyric")?.takeIf { it.isNotBlank() }
+        ?: body.obj("ytlrc")?.str("lyric")?.takeIf { it.isNotBlank() }
+    val romanization = body.obj("romalrc")?.str("lyric")?.takeIf { it.isNotBlank() }
+        ?: body.obj("yromalrc")?.str("lyric")?.takeIf { it.isNotBlank() }
+    if (translation == null && romanization == null) return null
+    if (main.isBlank()) return null
+    return com.muses.player.core.lyrics.parser.LrcLyricsParser.parse(
+        main, translation = translation.orEmpty(), romanization = romanization.orEmpty(),
+    )
+}
+
 /**
  * 网易原生副歌区间（`/api/song/chorus`）。
  *
@@ -160,6 +192,7 @@ private val wyChorusHttp by lazy { LyricsHttp() }
  */
 suspend fun fetchWyChorusRanges(http: LyricsHttp, query: OnlineLyricsQuery): List<com.muses.player.core.model.lyrics.ChorusRange> {
     val id = query.platformId("wy", "songmid", "songId", "id")?.toLongOrNull()
+        ?: wyIdForTrack(query.songId)
         ?: searchWySongIds(http, query).firstOrNull() ?: return emptyList()
     return fetchWyChorusById(http, id)
 }
@@ -190,6 +223,7 @@ private suspend fun fetchWyChorusById(http: LyricsHttp, id: Long): List<com.muse
 suspend fun searchWyLyrics(http: LyricsHttp, query: OnlineLyricsQuery): OnlineLyricsProviderHit? {
     val id = query.platformId("wy", "songmid", "songId", "id")?.toLongOrNull()
         ?: searchWySongIds(http, query).firstOrNull() ?: return null
+    rememberWyIdForTrack(query.songId, id)
 
     fetchWyEapiLyric(http, id)?.let { body ->
         pickWyLyricsBody(body)?.let { return it }

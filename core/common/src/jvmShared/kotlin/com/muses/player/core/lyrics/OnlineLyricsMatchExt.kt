@@ -83,6 +83,36 @@ suspend fun LyricsMatcher.chorusRangesFor(song: com.muses.player.core.model.Song
         )
     }.getOrDefault(emptyList())
 
+/** 当前歌词是否还缺译文/音译（策略类内部使用，对外只暴露这个判定）。 */
+fun needsAnnotationEnrichment(document: LyricsDocument, translationSource: String?): Boolean =
+    LyricTranslationPolicy.needsEnrichment(document, translationSource) ||
+        LyricRomanizationPolicy.needsEnrichment(document)
+
+/** 用网易 donor 补全译文与音译；没变化时返回原对象。 */
+fun enrichWithWyDonor(
+    base: LyricsDocument,
+    donor: LyricsDocument?,
+    translationSource: String?,
+): Pair<LyricsDocument, String?> {
+    if (donor == null) return base to translationSource
+    val translated = LyricTranslationPolicy.enrich(base, donor, translationSource, "wy")
+    val read = LyricRomanizationPolicy.enrich(translated.document, donor, translated.translationSource, "wy")
+    return read.document to translated.translationSource
+}
+
+/** 用同一首曲的网易 id 取译文/音译 donor；失败返回 null。 */
+suspend fun LyricsMatcher.annotationDonorFor(song: com.muses.player.core.model.Song): LyricsDocument? =
+    runCatching {
+        com.muses.player.core.lyrics.provider.fetchWyAnnotationDonor(
+            OnlineLyricsQuery(
+                songId = song.id, title = song.title, artist = song.artist, album = song.album,
+                durationSec = song.durationMs.takeIf { it > 0 }?.let { it / 1000.0 }
+                    ?: song.durationSec.takeIf { it > 0 }?.toDouble(),
+                trackRef = com.muses.player.core.model.online.OnlineTrackRef.parse(song.path),
+            ),
+        )
+    }.getOrNull()
+
 /** 播放专用渐进通道；脚本与平台互不等待，所有播放 UI 共享缓存及进行中的查询。 */
 fun LyricsMatcher.observeDocuments(
     song: com.muses.player.core.model.Song,
