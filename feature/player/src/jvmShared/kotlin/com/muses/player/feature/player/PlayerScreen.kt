@@ -711,6 +711,7 @@ private fun PhoneImmersiveLayout(
                     isTablet = false,
                     maxWidth = maxWidth,
                     maxHeight = maxHeight,
+                    chorusMs = remember(lyricsDocument) { lyricsDocument?.chorusRanges?.firstOrNull()?.startMs },
                     onSeekDragActive = { isSeekDragging = it },
                     contentAlpha = { contentAlphaFor(transitionProgress()) },
                 )
@@ -860,6 +861,7 @@ private fun TabletImmersiveLayout(
                 onOpenEditMeta = onOpenEditMeta,
                 screenWidth = maxWidth,
                 screenHeight = maxHeight,
+                chorusMs = remember(lyricsDocument) { lyricsDocument?.chorusRanges?.firstOrNull()?.startMs },
             )
         }
     }
@@ -934,6 +936,7 @@ private fun FixedSongHead(
 @Composable
 private fun InfoPanel(
     coverUri: String?,
+    chorusMs: Long? = null,
     lines: List<AmllLyricLine>,
     lyricPosition: Long,
     position: Long,
@@ -1034,6 +1037,7 @@ private fun InfoPanel(
                     onSeekStart = onSeekStart,
                     onSeekEnd = onSeekEnd,
                     screenHeight = maxHeight,
+                    chorusMs = chorusMs,
                     onSeekDragActive = onSeekDragActive,
                 )
                 Spacer(Modifier.height(innerGap))
@@ -1092,6 +1096,8 @@ private fun ProgressSection(
     onSeekStart: () -> Unit,
     onSeekEnd: (Long) -> Unit,
     screenHeight: Dp,
+    // 副歌节点：进度条上的标记点，点进度条即 seek 过去。
+    chorusMs: Long? = null,
     // 进度条手势活跃状态：按下即 true（tap/拖动均算），抬手/取消即 false。
     // 手机布局据此禁用 HorizontalPager 横滑，杜绝 seek 拖动被当成切页。
     onSeekDragActive: (Boolean) -> Unit = {},
@@ -1103,6 +1109,7 @@ private fun ProgressSection(
         onSeekStart = onSeekStart,
         onSeekEnd = onSeekEnd,
         barHeight = barHeight,
+        chorusMs = chorusMs,
         onSeekDragActive = onSeekDragActive,
     )
 }
@@ -1182,6 +1189,7 @@ private fun TabletBottomBar(
     onOpenEditMeta: () -> Unit,
     screenWidth: Dp,
     screenHeight: Dp,
+    chorusMs: Long? = null,
 ) {
     val contentColor = LocalPlayerContentColor.current
     Column(
@@ -1202,6 +1210,7 @@ private fun TabletBottomBar(
             onSeekStart = onSeekStart,
             onSeekEnd = onSeekEnd,
             screenHeight = screenHeight,
+            chorusMs = chorusMs,
         )
         Spacer(Modifier.height(2.dp))
         // 三段式：left mode + center controls + right mode，space-between，中组居中于屏幕中心

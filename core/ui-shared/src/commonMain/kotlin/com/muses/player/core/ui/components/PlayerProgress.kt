@@ -44,6 +44,8 @@ fun PlayerProgress(
     onSeekEnd: (Long) -> Unit,
     modifier: Modifier = Modifier,
     barHeight: Dp = 20.dp,
+    // 副歌节点：进度条上的一个小点，点进度条就能跳过去（与 QQ 音乐/网易云一致）。
+    chorusMs: Long? = null,
     // 进度条手势活跃状态：按下即 true（tap/拖动均算），抬手/取消即 false。
     // 手机布局据此禁用 HorizontalPager 横滑，杜绝 seek 拖动被当成切页。
     onSeekDragActive: (Boolean) -> Unit = {},
@@ -116,6 +118,15 @@ fun PlayerProgress(
                         size = androidx.compose.ui.geometry.Size(size.width * fraction, trackH),
                         cornerRadius = androidx.compose.ui.geometry.CornerRadius(trackH / 2f),
                     )
+                    // 副歌节点：实心小点 + 一圈细淡环，压在轨道中线，跟播放进度区分。
+                    chorusMs?.let { ms ->
+                        val cx = size.width * (ms.toFloat() / max.toFloat()).coerceIn(0f, 1f)
+                        val cy = top + trackH / 2f
+                        val center = androidx.compose.ui.geometry.Offset(cx, cy)
+                        drawCircle(color = contentColor.copy(alpha = .32f), radius = 5.dp.toPx(), center = center,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx()))
+                        drawCircle(color = contentColor, radius = 2.5.dp.toPx(), center = center)
+                    }
                 },
         )
         // time-row：对齐 Capacitor 12px tabular-nums rgba0.68，margin-top 2px（缓冲提示已按需求移除）

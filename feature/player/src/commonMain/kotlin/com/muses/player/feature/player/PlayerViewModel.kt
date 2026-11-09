@@ -512,7 +512,11 @@ class PlayerViewModel constructor(
         if (chorusSongId == song.id) return
         chorusSongId = song.id
         viewModelScope.launch {
-            val ranges = matcher.chorusRangesFor(song)
+            // 优先平台原生区间（目前只有网易）；拿不到才用歌词文本重复段落兜底（QQ 客户端也是这么降级的）。
+            val native = matcher.chorusRangesFor(song)
+            val ranges = native.ifEmpty {
+                _lyricsDocument.value?.let { com.muses.player.core.lyrics.detectChorusRanges(it.lines) }.orEmpty()
+            }
             if (ranges.isEmpty() || playback.currentSongId.value != song.id) return@launch
             val document = _lyricsDocument.value ?: return@launch
             if (document.chorusRanges == ranges) return@launch
