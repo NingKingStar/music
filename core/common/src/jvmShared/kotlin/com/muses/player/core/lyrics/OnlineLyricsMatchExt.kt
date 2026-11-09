@@ -100,25 +100,29 @@ fun enrichWithWyDonor(
     return read.document to translated.translationSource
 }
 
-/** 用网易候选逐个尝试，直到能真的合进译文/音译（同一首歌常有多个版本，行文可能不同）。 */
+/** 用网易候选逐个尝试，选合得最多的那一版（不按“第一个能用”）。 */
 suspend fun enrichLyricsWithWy(
     base: LyricsDocument,
     query: OnlineLyricsQuery,
     translationSource: String?,
     onDebug: (String) -> Unit = {},
 ): Pair<LyricsDocument, String?>? {
-    val baseTranslations = base.lines.count { !it.translation.isNullOrBlank() }
-    val baseReadings = base.lines.count { !it.romanization.isNullOrBlank() }
+    var best: LyricsDocument? = null
+    var bestFilled = 0
     for (donor in com.muses.player.core.lyrics.provider.wyAnnotationDonors(query, onDebug)) {
-        val (enriched, source) = enrichWithWyDonor(base, donor, translationSource)
-        val translations = enriched.lines.count { !it.translation.isNullOrBlank() }
-        val readings = enriched.lines.count { !it.romanization.isNullOrBlank() }
-        onDebug("merge donor=${donor.lines.size} -> translations=$translations readings=$readings")
-        if (translations > baseTranslations || readings > baseReadings) return enriched to source
+        val (merged, filled) = mergeAnnotations(base, donor)
+        onDebug("merge donor=${donor.lines.size} filled=$filled coverage=${(annotationCoverage(merged) * 100).toInt()}%")
+        if (filled > bestFilled) {
+            bestFilled = filled
+            best = merged
+        }
+        // 已经合满就不必再试后面的版本。
+        if (annotationCoverage(merged) >= 0.95) break
     }
-    return null
+    return best?.takeIf { bestFilled > 0 }?.let { it to (translationSource ?: "wy") }
 }
 
+/** 兼容：单版本合并（保留旧行为）。 */
 /** 用同一首曲的网易 id 取译文/音译 donor；失败返回 null。 */
 suspend fun LyricsMatcher.annotationDonorFor(song: com.muses.player.core.model.Song): LyricsDocument? =
     runCatching {

@@ -6,6 +6,7 @@ import com.muses.player.core.model.lyrics.OnlineLyricsFormat
 import com.muses.player.core.model.lyrics.OnlineLyricsProviderHit
 import com.muses.player.core.model.lyrics.OnlineLyricsQuery
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -173,23 +174,32 @@ suspend fun wyAnnotationDonors(
 ): List<com.muses.player.core.lyrics.model.LyricsDocument> {
     val candidates = wyCandidates(wyChorusHttp, query)
     onDebug("candidates=$candidates")
-    val donors = mutableListOf<com.muses.player.core.lyrics.model.LyricsDocument>()
-    for (id in candidates) {
-        val body = fetchWyEapiLyric(wyChorusHttp, id)
-        onDebug("id=$id keys=${body?.keys?.joinToString(",")} lrc=${body?.obj("lrc")?.str("lyric")?.length}")
-        if (body == null) continue
-        val main = body.obj("lrc")?.str("lyric").orEmpty()
-        if (main.isBlank()) continue
-        val translation = body.obj("tlyric")?.str("lyric")?.takeIf { it.isNotBlank() }
-            ?: body.obj("ytlrc")?.str("lyric")?.takeIf { it.isNotBlank() }
-        val romanization = body.obj("romalrc")?.str("lyric")?.takeIf { it.isNotBlank() }
-            ?: body.obj("yromalrc")?.str("lyric")?.takeIf { it.isNotBlank() }
-        if (translation == null && romanization == null) continue
-        com.muses.player.core.lyrics.parser.LrcLyricsParser.parse(
-            main, translation = translation.orEmpty(), romanization = romanization.orEmpty(),
-        )?.let { donors.add(it) }
+    // 并发取候选（最多 3 个），单个 2 秒封顶：慢网下最坏 2 秒左右返回，不会串行拖到好几秒。
+    return kotlinx.coroutines.coroutineScope {
+        val scope = this
+        candidates.take(3).map { id ->
+            scope.async {
+                kotlinx.coroutines.withTimeoutOrNull(2_000L) {
+                    runCatching { loadWyDonor(wyChorusHttp, id) }.getOrNull()
+                }
+            }
+        }.mapNotNull { it.await() }
     }
-    return donors
+}
+
+/** 取单个 id 的译文/读音 donor（无则 null）。 */
+private suspend fun loadWyDonor(http: LyricsHttp, id: Long): com.muses.player.core.lyrics.model.LyricsDocument? {
+    val body = fetchWyEapiLyric(http, id) ?: return null
+    val main = body.obj("lrc")?.str("lyric").orEmpty()
+    if (main.isBlank()) return null
+    val translation = body.obj("tlyric")?.str("lyric")?.takeIf { it.isNotBlank() }
+        ?: body.obj("ytlrc")?.str("lyric")?.takeIf { it.isNotBlank() }
+    val romanization = body.obj("romalrc")?.str("lyric")?.takeIf { it.isNotBlank() }
+        ?: body.obj("yromalrc")?.str("lyric")?.takeIf { it.isNotBlank() }
+    if (translation == null && romanization == null) return null
+    return com.muses.player.core.lyrics.parser.LrcLyricsParser.parse(
+        main, translation = translation.orEmpty(), romanization = romanization.orEmpty(),
+    )
 }
 
 /** 兼容入口：取第一个带译文/读音的网易版本。 */
