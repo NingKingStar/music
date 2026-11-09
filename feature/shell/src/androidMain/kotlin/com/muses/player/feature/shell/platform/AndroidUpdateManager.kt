@@ -33,7 +33,12 @@ internal class AndroidUpdateManager private constructor(private val context: Con
     private val installGate = AtomicBoolean(false)
     private val json = Json { ignoreUnknownKeys = true }
     private val installed by lazy { context.packageManager.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES) }
-    private val file get() = File(requireNotNull(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)) { "设备存储暂不可用，请稍后重试" }, "updates/update.apk")
+    private val updatesDir get() = File(requireNotNull(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)) {
+        "设备存储暂不可用，请稍后重试"
+    }, "updates")
+    /** 文件名带版本号：避免旧版本安装包残留在同一路径上被当成新包。 */
+    private fun fileFor(release: AndroidReleaseInfo) = File(updatesDir, "muses-${release.versionName}.apk")
+    private val file get() = state.value.release?.let { fileFor(it) } ?: File(updatesDir, "update.apk")
     private val saved = runCatching { prefs.getString("release", null)?.let { json.decodeFromString<AndroidReleaseInfo>(it) } }.getOrNull()
     private val mutable = MutableStateFlow(AndroidUpdateState(release = saved,
         downloadId = prefs.getLong("download_id", -1), autoCheck = prefs.getBoolean("auto_check", true),
@@ -58,7 +63,7 @@ internal class AndroidUpdateManager private constructor(private val context: Con
             if (release != null && !newer(release)) {
                 if (state.value.downloadId >= 0) downloads.remove(state.value.downloadId)
                 prefs.edit().remove("download_id").remove("release").apply()
-                if (file.exists()) file.delete()
+                updatesDir.listFiles()?.forEach { it.delete() }
                 change { it.copy(release = null, downloadId = -1, progress = null, ready = false, verifying = false,
                     error = null, status = "当前版本已安装") }
             } else refreshLocked()
@@ -95,14 +100,17 @@ internal class AndroidUpdateManager private constructor(private val context: Con
         if (!newer(release) || state.value.downloadId >= 0) return
         require(!release.sha256.isNullOrBlank()) { "发布方未提供校验值，请使用网页下载" }
         require(isOfficialReleaseAsset(release.downloadUrl)) { "安装包地址无效" }
-        file.parentFile?.mkdirs()
-        if (file.exists()) require(file.delete()) { "无法清理旧安装包，请重试" }
+        val target = fileFor(release)
+        target.parentFile?.mkdirs()
+        // 清掉所有旧版本安装包（包括旧版固定名 update.apk），只留本版这一个。
+        target.parentFile?.listFiles()?.forEach { if (it.name != target.name) it.delete() }
+        if (target.exists()) require(target.delete()) { "无法清理旧安装包，请重试" }
         val request = DownloadManager.Request(Uri.parse(release.downloadUrl))
             .setTitle("Muses ${release.versionName}").setDescription("正在下载应用更新")
             .setMimeType("application/vnd.android.package-archive")
             .setAllowedOverRoaming(false)
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE)
-            .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "updates/update.apk")
+            .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, "updates/muses-${release.versionName}.apk")
         if (automatic) request.setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI).setAllowedOverMetered(false)
         val id = downloads.enqueue(request)
         prefs.edit().putLong("download_id", id).putBoolean("download_automatic", automatic).apply()
@@ -157,7 +165,10 @@ internal class AndroidUpdateManager private constructor(private val context: Con
                     try {
                         change { it.copy(status = "正在核验安装包…", verifying = true, progress = 100) }
                         verify()
-                        change { it.copy(ready = true, verifying = false, error = null, status = "安装包已就绪，点击安装") }
+                        // 把包内真实版本写进状态：以后“装上去还是旧版”这种情况一眼能对账。
+                        val archive = context.packageManager.getPackageArchiveInfo(file.absolutePath, 0)
+                        change { it.copy(ready = true, verifying = false, error = null,
+                            status = "安装包已就绪：${archive?.versionName ?: "?"}（${archive?.longVersionCode ?: 0}），点击安装") }
                     } catch (e: Exception) {
                         downloads.remove(id); file.delete(); prefs.edit().remove("download_id").apply()
                         change { it.failed(UpdateWork.VERIFY, e.message ?: "安装包校验失败，请重试") }
