@@ -18,12 +18,12 @@ fun detectChorusRanges(lines: List<LyricLine>): List<ChorusRange> {
         .map { it.timeMs to it.text.lowercase().filter { ch -> ch.isLetterOrDigit() } }
         .filter { it.second.isNotEmpty() }
         .toList()
-    if (usable.size < 6) return emptyList()
+    if (usable.size < 5) return emptyList()
 
     var bestStart = -1
     var bestLength = 0
     var bestScore = 0
-    for (length in 1..3) {
+    for (length in 1..4) {
         var start = 0
         while (start + length <= usable.size) {
             val block = (0 until length).map { usable[start + it].second }

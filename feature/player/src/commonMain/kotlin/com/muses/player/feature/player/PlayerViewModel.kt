@@ -506,21 +506,25 @@ class PlayerViewModel constructor(
         }
     }
 
-    /** 副歌区间：只取平台原生数据（目前只有网易），每首歌最多查一次，失败就静默没有节点。 */
-    private var chorusSongId: String? = null
+    /** 副歌区间：优先平台原生（目前只有网易），拿不到用歌词重复段落兜底；每首歌只查一次网络。 */
+    private val chorusNativeCache = mutableMapOf<String, List<com.muses.player.core.model.lyrics.ChorusRange>>()
     private fun loadChorusRanges(song: com.muses.player.core.model.Song, matcher: LyricsMatcher) {
-        if (chorusSongId == song.id) return
-        chorusSongId = song.id
+        val document = _lyricsDocument.value ?: return
+        if (document.chorusRanges.isNotEmpty()) return
+        val cached = chorusNativeCache[song.id]
         viewModelScope.launch {
-            // 优先平台原生区间（目前只有网易）；拿不到才用歌词文本重复段落兜底（QQ 客户端也是这么降级的）。
-            val native = matcher.chorusRangesFor(song)
-            val ranges = native.ifEmpty {
-                _lyricsDocument.value?.let { com.muses.player.core.lyrics.detectChorusRanges(it.lines) }.orEmpty()
+            val native = cached ?: matcher.chorusRangesFor(song).also {
+                chorusNativeCache[song.id] = it
+                if (chorusNativeCache.size > 32) chorusNativeCache.remove(chorusNativeCache.keys.first())
             }
-            if (ranges.isEmpty() || playback.currentSongId.value != song.id) return@launch
-            val document = _lyricsDocument.value ?: return@launch
-            if (document.chorusRanges == ranges) return@launch
-            _lyricsDocument.value = document.copy(chorusRanges = ranges)
+            if (playback.currentSongId.value != song.id) return@launch
+            val current = _lyricsDocument.value ?: return@launch
+            val fallback = if (native.isEmpty()) com.muses.player.core.lyrics.detectChorusRanges(current.lines) else emptyList()
+            val ranges = native.ifEmpty { fallback }
+            // 歌词可能会从内嵌 LRC 升级为在线逐字文档；本首歌没结果就不锁定，下次升级再试。
+            println("MusesChorus id=${song.id} native=${native.size} fallback=${fallback.size} lines=${current.lines.size}")
+            if (ranges.isEmpty() || current.chorusRanges == ranges) return@launch
+            _lyricsDocument.value = current.copy(chorusRanges = ranges)
         }
     }
 
