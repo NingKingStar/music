@@ -24,7 +24,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.muses.player.core.data.repository.SettingsRepository
 import com.muses.player.core.data.repository.LyricSupplementMode
-import com.muses.player.core.lyrics.detectChorusStartMs
 import com.muses.player.core.lyrics.model.LyricsDocument
 import com.muses.player.core.ui.components.*
 import com.muses.player.core.ui.icons.TablerIcons
@@ -59,8 +58,8 @@ fun PlaybackLyricsPanel(
     }
     val onTranslation: (Boolean) -> Unit = { value -> scope.launch { settings.setLyricTranslationEnabled(value) } }
     val onRomanization: (Boolean) -> Unit = { value -> scope.launch { settings.setLyricRomanizationEnabled(value) } }
-    // 副歌节点：只在能从歌词里推断出重复段落时出现，点击直接跳过去。
-    val chorusMs = remember(document) { detectChorusStartMs(document?.lines.orEmpty()) }
+    // 副歌节点：只用平台给的真实区间（网易 /api/song/chorus），没有就不显示入口。
+    val chorusStart = remember(document) { document?.chorusRanges?.firstOrNull()?.startMs }
     Column(modifier) {
         LyricsPanel(document, positionMs, isPlaying, onSeek,
             Modifier.weight(1f).fillMaxWidth(), onAtTopChange)
@@ -68,7 +67,13 @@ fun PlaybackLyricsPanel(
             onTranslation = { if (translated) onTranslation(!translation) },
             onRomanization = { if (romanized) onRomanization(!romanization) },
             onSettings = { showSettings = true }, onPlayPause = onPlayPause,
-            chorusMs = chorusMs, onSeek = onSeek,
+            chorusMs = chorusStart, onChorus = {
+                chorusStart?.let { start ->
+                    onSeek(start)
+                    // 对齐 QQ 音乐的「从副歌开始播放」：跳过去并继续放。
+                    if (!isPlaying) onPlayPause()
+                }
+            },
             modifier = Modifier.fillMaxWidth().navigationBarsPadding(), loading = loading)
     }
     if (showSettings) ImmersiveLyricsSettingsSheet(
@@ -101,14 +106,14 @@ internal fun LyricsToolbar(
     translation: Boolean, romanization: Boolean, translated: Boolean, romanized: Boolean,
     playing: Boolean, onTranslation: () -> Unit, onRomanization: () -> Unit,
     onSettings: () -> Unit, onPlayPause: () -> Unit, modifier: Modifier = Modifier, loading: Boolean = false,
-    chorusMs: Long? = null, onSeek: (Long) -> Unit = {},
+    chorusMs: Long? = null, onChorus: () -> Unit = {},
 ) {
     val ink = LocalPlayerContentColor.current
     Row(modifier.height(64.dp), verticalAlignment = Alignment.CenterVertically) {
         if (translated) LyricToolButton("译", translation, true, "显示译词", ink, onTranslation)
         if (romanized) LyricToolButton("音", romanization, true, "显示音译", ink, onRomanization)
         LyricToolButton("词", false, true, "歌词设置", ink, onSettings)
-        chorusMs?.let { target -> ChorusJumpChip(ink) { onSeek(target) } }
+        chorusMs?.let { _ -> ChorusJumpChip(ink, onChorus) }
         Spacer(Modifier.weight(1f))
         MusesIconButton(onClick = onPlayPause,
             modifier = Modifier.clip(androidx.compose.foundation.shape.CircleShape),
@@ -120,14 +125,14 @@ internal fun LyricsToolbar(
 
 @Composable
 private fun ChorusJumpChip(ink: Color, onClick: () -> Unit) {
-    // 小胶囊而不是单字按钮：这是一个动作，不是开关，写成字才不会被当成谜语。
+    // 小胶囊而不是单字按钮：这是一个动作（从副歌开始播），不是开关。
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     Box(Modifier.padding(start = 2.dp).height(26.dp).clip(RoundedCornerShape(8.dp))
         .background(ink.copy(alpha = if (pressed) .18f else 0f))
         .border(1.dp, ink.copy(alpha = .48f), RoundedCornerShape(8.dp))
         .clickable(interactionSource = interaction, indication = null, role = Role.Button,
-            onClickLabel = "跳到副歌") { onClick() }
+            onClickLabel = "从副歌开始播放") { onClick() }
         .padding(horizontal = 9.dp), contentAlignment = Alignment.Center) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(5.dp).background(ink.copy(alpha = .85f), CircleShape))

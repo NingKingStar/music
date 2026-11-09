@@ -11,6 +11,11 @@ package com.muses.player.core.model.lyrics
 
 // ── 在线歌词查询与命中（providers/types.ts）────────────────
 
+/** 副歌区间（标南时间轴上的段落，不是单点）：网易 /api/song/chorus 的原生数据。 */
+data class ChorusRange(val startMs: Long, val endMs: Long) {
+    fun overlaps(start: Long, end: Long): Boolean = start < endMs && end > startMs
+}
+
 /** 在线歌词查询（编排层 / 各 provider 共用） */
 data class OnlineLyricsQuery(
     val songId: String,

@@ -82,6 +82,8 @@ data class LyricsDocument(
     val quality: LyricQuality = LyricQuality.Fallback,
     /** Whether line-timed lyrics may be expanded into synthetic per-grapheme timing. */
     val pseudoTimingAllowed: Boolean = true,
+    /** 平台原生副歌区间（目前只有网易提供）；空表示未知，不做推断。 */
+    val chorusRanges: List<com.muses.player.core.model.lyrics.ChorusRange> = emptyList(),
 ) {
     fun highlightedIndex(positionMs: Long, strategy: LyricHighlightStrategy = LyricHighlightStrategy.LineStart): Int? {
         if (lines.isEmpty()) return null

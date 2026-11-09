@@ -148,6 +148,44 @@ private suspend fun fetchWyPublicLyric(http: LyricsHttp, id: Long): JsonObject? 
     null
 }
 
+/** 副歌区间缓存的共享 HTTP（副歌请求很轻，复用一份即可）。 */
+private val wyChorusHttp by lazy { LyricsHttp() }
+
+/**
+ * 网易原生副歌区间（`/api/song/chorus`）。
+ *
+ * 2026-11 实测：匿名 eapi 即可返回 `code=200, chorus=[{startTime,endTime}]`（毫秒），不需要登录。
+ * 优先用当前曲的网易平台 ID（用户选中的版本），没有再用与歌词同一套搜索打分。
+ * 任何失败都返回空表，不抛错、不阻断歌词展示。
+ */
+suspend fun fetchWyChorusRanges(http: LyricsHttp, query: OnlineLyricsQuery): List<com.muses.player.core.model.lyrics.ChorusRange> {
+    val id = query.platformId("wy", "songmid", "songId", "id")?.toLongOrNull()
+        ?: searchWySongIds(http, query).firstOrNull() ?: return emptyList()
+    return fetchWyChorusById(http, id)
+}
+
+suspend fun fetchWyChorusRanges(query: OnlineLyricsQuery): List<com.muses.player.core.model.lyrics.ChorusRange> =
+    fetchWyChorusRanges(wyChorusHttp, query)
+
+private suspend fun fetchWyChorusById(http: LyricsHttp, id: Long): List<com.muses.player.core.model.lyrics.ChorusRange> {
+    val payload = """{"ids":"[$id]"}"""
+    val body = try {
+        val params = WyCrypto.buildEapiParams("/api/song/chorus", payload)
+        http.postJson("https://interface3.music.163.com/eapi/song/chorus", "params=$params", WY_EAPI_HEADERS) as? JsonObject
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        return emptyList()
+    } ?: return emptyList()
+    if (body.str("code")?.toIntOrNull() != 200) return emptyList()
+    val items = body["chorus"]?.asObjArray().orEmpty().ifEmpty { body["data"]?.asObjArray().orEmpty() }
+    return items.mapNotNull { item ->
+        val start = item.str("startTime")?.toLongOrNull() ?: return@mapNotNull null
+        val end = item.str("endTime")?.toLongOrNull() ?: return@mapNotNull null
+        if (start >= 0 && end > start) com.muses.player.core.model.lyrics.ChorusRange(start, end) else null
+    }.sortedBy { it.startMs }
+}
+
 /** wy 搜索主流程（wy.ts searchWyLyrics）；失败返回 null 由链上下一源承接 */
 suspend fun searchWyLyrics(http: LyricsHttp, query: OnlineLyricsQuery): OnlineLyricsProviderHit? {
     val id = query.platformId("wy", "songmid", "songId", "id")?.toLongOrNull()

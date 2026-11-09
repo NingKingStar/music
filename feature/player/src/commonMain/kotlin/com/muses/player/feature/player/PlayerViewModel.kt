@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.muses.player.core.data.dao.SongDao
 import com.muses.player.core.data.db.SongEntity
 import com.muses.player.core.lyrics.LyricsMatcher
+import com.muses.player.core.lyrics.chorusRangesFor
 import com.muses.player.core.lyrics.observeDocuments
 import com.muses.player.core.lyrics.model.LyricsDocument
 import com.muses.player.core.lyrics.parser.LxLyricParser
@@ -486,6 +487,7 @@ class PlayerViewModel constructor(
                 matcher.observeDocuments(song, onlineMetadataResolver).collect { update ->
                     if (song.id == playback.currentSongId.value) {
                         applyLyricsDocument(update.document, update.translationSource, update.romanizationSource)
+                        loadChorusRanges(song, matcher)
                         if (first) {
                             println("MusesLyrics first=${update.elapsedMs}ms cache=${update.fromCache} source=${update.source} translation=${update.translationSource}")
                             first = false
@@ -501,6 +503,20 @@ class PlayerViewModel constructor(
             }
         } finally {
             if (song.id == playback.currentSongId.value) _lyricsLoading.value = false
+        }
+    }
+
+    /** 副歌区间：只取平台原生数据（目前只有网易），每首歌最多查一次，失败就静默没有节点。 */
+    private var chorusSongId: String? = null
+    private fun loadChorusRanges(song: com.muses.player.core.model.Song, matcher: LyricsMatcher) {
+        if (chorusSongId == song.id) return
+        chorusSongId = song.id
+        viewModelScope.launch {
+            val ranges = matcher.chorusRangesFor(song)
+            if (ranges.isEmpty() || playback.currentSongId.value != song.id) return@launch
+            val document = _lyricsDocument.value ?: return@launch
+            if (document.chorusRanges == ranges) return@launch
+            _lyricsDocument.value = document.copy(chorusRanges = ranges)
         }
     }
 

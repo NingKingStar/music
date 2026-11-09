@@ -70,6 +70,19 @@ internal suspend fun parseLyricsMatch(result: OnlineLyricsMatchResult.Ok): Lyric
         if (fallback != null) LyricRomanizationPolicy.enrich(primary, fallback, result.source.wire, result.source.wire).document else primary
     }
 
+/** 当前曲的副歌区间；没有网易匹配或接口失败时返回空表（不做文本推断）。 */
+suspend fun LyricsMatcher.chorusRangesFor(song: com.muses.player.core.model.Song): List<com.muses.player.core.model.lyrics.ChorusRange> =
+    runCatching {
+        com.muses.player.core.lyrics.provider.fetchWyChorusRanges(
+            OnlineLyricsQuery(
+                songId = song.id, title = song.title, artist = song.artist, album = song.album,
+                durationSec = song.durationMs.takeIf { it > 0 }?.let { it / 1000.0 }
+                    ?: song.durationSec.takeIf { it > 0 }?.toDouble(),
+                trackRef = com.muses.player.core.model.online.OnlineTrackRef.parse(song.path),
+            ),
+        )
+    }.getOrDefault(emptyList())
+
 /** 播放专用渐进通道；脚本与平台互不等待，所有播放 UI 共享缓存及进行中的查询。 */
 fun LyricsMatcher.observeDocuments(
     song: com.muses.player.core.model.Song,
