@@ -99,6 +99,7 @@ internal fun AppleMusicLyricsPanel(
     val lyricTextSize by settingsRepository.lyricTextSize.collectAsStateWithLifecycle(initialValue = 24L)
     val lyricLineSpacing by settingsRepository.lyricLineSpacing.collectAsStateWithLifecycle(initialValue = 28L)
     val wordHighlightEnabled by settingsRepository.lyricWordHighlightEnabled.collectAsStateWithLifecycle(initialValue = true)
+    val lyricAdvanceSetting by settingsRepository.lyricAdvanceMs.collectAsStateWithLifecycle(initialValue = 0L)
     val lyricFontScale = lyricTextSize.toFloat() / UpstreamLyrics.FONT_SIZE_SP
     val lyricSpacingScale = lyricLineSpacing.toFloat() / UpstreamLyrics.LINE_SPACING_DP
     val contentColor = LocalPlayerContentColor.current
@@ -173,14 +174,15 @@ internal fun AppleMusicLyricsPanel(
     }
 
     val document = externalDocument ?: lyrics
-    val pseudoTimingEnabled = SettingsRuntime.lyricPseudoTimingEnabled
+    // 逐字高亮开启时，行级歌词也要能被逐字推进（伪时间轴）：否则开关看起来“没效果”。
+    val pseudoTimingEnabled = wordHighlightEnabled
     val renderedDocument = remember(document, pseudoTimingEnabled) {
         if (pseudoTimingEnabled) document?.withPseudoTiming() else document
     }
     val lines = renderedDocument?.lines.orEmpty()
     val hasSyllableSync = remember(renderedDocument) { lines.any { it.syllables.isNotEmpty() } }
     val bilibiliOffsetMs = rememberBilibiliLyricOffset(mediaId)
-    val lyricAdvanceMs = effectiveBilibiliLyricAdvance(SettingsRuntime.lyricAdvanceMs, bilibiliOffsetMs)
+    val lyricAdvanceMs = effectiveBilibiliLyricAdvance(SettingsRuntime.lyricAdvanceMs + lyricAdvanceSetting.toInt(), bilibiliOffsetMs)
     val isBilibiliLyrics = remember(mediaId) { isBilibiliMediaId(mediaId) }
     val usesWordByWordPresentation = hasSyllableSync && SettingsRuntime.lyricWordByWordEnabled
     val timedAdvanceMs = if (isBilibiliLyrics || SettingsRuntime.lyricAdvanceAppliesToWordByWord) {

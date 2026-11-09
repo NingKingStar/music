@@ -105,6 +105,7 @@ internal fun LyricsSettingsContent(
     onTextSize: (Long) -> Unit, onSpacing: (Long) -> Unit, onHighlight: (Boolean) -> Unit,
     onRetry: (() -> Unit)?, previewLine: LyricLine? = null,
     nextPreviewLine: LyricLine? = null, onClose: () -> Unit = {}, romanizationHint: String = if (romanized) "" else "暂无读音",
+    advanceMs: Long = 0L, onAdvance: (Long) -> Unit = {},
 ) {
     var previewSize by remember(textSize) { mutableLongStateOf(textSize) }
     var previewSpacing by remember(spacing) { mutableLongStateOf(spacing) }
@@ -157,6 +158,8 @@ internal fun LyricsSettingsContent(
             Spacer(Modifier.height(16.dp))
             PlayerLyricSlider("字号", textSize, 18L..32L, 2, "小", "大", { previewSize = it }, onTextSize)
             PlayerLyricSlider("句间距", spacing, 12L..36L, 4, "紧凑", "宽松", { previewSpacing = it }, onSpacing)
+            // 不同机型音频输出延迟不同：抖一点就自己调，不用等我们发版。
+            PlayerLyricSlider("歌词偏移", advanceMs, -500L..500L, 50, "延后", "提前", {}, onAdvance)
             Row(Modifier.fillMaxWidth().heightIn(min = 60.dp).padding(vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f).padding(end = 12.dp)) {

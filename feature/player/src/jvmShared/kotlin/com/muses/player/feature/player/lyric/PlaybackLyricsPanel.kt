@@ -45,6 +45,7 @@ fun PlaybackLyricsPanel(
     val textSize by settings.lyricTextSize.collectAsStateWithLifecycle(initialValue = 24L)
     val spacing by settings.lyricLineSpacing.collectAsStateWithLifecycle(initialValue = 28L)
     val wordHighlight by settings.lyricWordHighlightEnabled.collectAsStateWithLifecycle(initialValue = true)
+    val advanceMs by settings.lyricAdvanceMs.collectAsStateWithLifecycle(initialValue = 0L)
     val scope = rememberCoroutineScope()
     val translated = document?.lines?.any { !it.translation.isNullOrBlank() } == true
     val romanized = document?.lines?.any { !it.romanization.isNullOrBlank() } == true
@@ -78,6 +79,8 @@ fun PlaybackLyricsPanel(
             onTextSize = { scope.launch { settings.setLyricTextSize(it) } },
             onSpacing = { scope.launch { settings.setLyricLineSpacing(it) } },
             onHighlight = { value -> scope.launch { settings.setLyricWordHighlightEnabled(value) } },
+            advanceMs = advanceMs,
+            onAdvance = { value -> scope.launch { settings.setLyricAdvanceMs(value) } },
             onRetry = retry,
             romanizationHint = when {
                 romanized -> ""

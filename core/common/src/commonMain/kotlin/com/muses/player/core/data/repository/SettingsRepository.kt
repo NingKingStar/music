@@ -75,9 +75,12 @@ interface SettingsRepository {
         }
 
     val lyricTextSize: Flow<Long> get() = kotlinx.coroutines.flow.flowOf(24L)
+    /** 歌词时间轴微调（毫秒）：正数让歌词提前，负数延后。不同机型音频输出延迟不同，默认 0。 */
+    val lyricAdvanceMs: Flow<Long> get() = kotlinx.coroutines.flow.flowOf(0L)
     val lyricLineSpacing: Flow<Long> get() = kotlinx.coroutines.flow.flowOf(28L)
     val lyricWordHighlightEnabled: Flow<Boolean> get() = kotlinx.coroutines.flow.flowOf(true)
     suspend fun setLyricTextSize(size: Long) {}
+    suspend fun setLyricAdvanceMs(offset: Long) {}
     suspend fun setLyricLineSpacing(spacing: Long) {}
     suspend fun setLyricWordHighlightEnabled(enabled: Boolean) {}
 
@@ -240,6 +243,8 @@ class DataStoreSettingsRepository constructor(
         get() = dataStore.data.map { (it[LYRIC_TEXT_SIZE] ?: 24L).coerceIn(18L, 32L) }
     override val lyricLineSpacing: Flow<Long>
         get() = dataStore.data.map { (it[LYRIC_LINE_SPACING] ?: 28L).coerceIn(12L, 36L) }
+    override val lyricAdvanceMs: Flow<Long>
+        get() = dataStore.data.map { (it[LYRIC_ADVANCE_MS] ?: 0L).coerceIn(-800L, 800L) }
     override val lyricWordHighlightEnabled: Flow<Boolean>
         get() = dataStore.data.map { it[LYRIC_WORD_HIGHLIGHT] ?: true }
     override suspend fun setLyricTextSize(size: Long) {
@@ -247,6 +252,9 @@ class DataStoreSettingsRepository constructor(
     }
     override suspend fun setLyricLineSpacing(spacing: Long) {
         dataStore.edit { it[LYRIC_LINE_SPACING] = spacing.coerceIn(12L, 36L) }
+    }
+    override suspend fun setLyricAdvanceMs(offset: Long) {
+        dataStore.edit { it[LYRIC_ADVANCE_MS] = offset.coerceIn(-800L, 800L) }
     }
     override suspend fun setLyricWordHighlightEnabled(enabled: Boolean) {
         dataStore.edit { it[LYRIC_WORD_HIGHLIGHT] = enabled }
@@ -359,6 +367,7 @@ class DataStoreSettingsRepository constructor(
         val LYRIC_TRANSLATION_ENABLED = booleanPreferencesKey("lyric_translation_enabled")
         val LYRIC_TEXT_SIZE = longPreferencesKey("lyric_text_size")
         val LYRIC_LINE_SPACING = longPreferencesKey("lyric_line_spacing")
+    val LYRIC_ADVANCE_MS = longPreferencesKey("lyric_advance_ms")
         val LYRIC_WORD_HIGHLIGHT = booleanPreferencesKey("lyric_word_highlight")
         val LYRIC_ROMANIZATION_ENABLED = booleanPreferencesKey("lyric_romanization_enabled")
         val ONLINE_PREFERRED_QUALITY = stringPreferencesKey("online_preferred_quality")
