@@ -70,7 +70,7 @@ internal class AndroidUpdateManager private constructor(private val context: Con
         }
         val last = prefs.getLong("last_attempt", 0)
         val age = System.currentTimeMillis() - last
-        if (state.value.autoCheck && (last == 0L || age !in 0..86_399_999L)) check(false)
+        // 前台静默检查：每秒只做一次很轻的清单请求不值当，但 24 小时太长——发版后用户可能一天都收不到提示。\n        // 折中 1 小时；提示本身仍然按版本节流（同版本一天最多弹一次）。\n        if (state.value.autoCheck && (last == 0L || age !in 0..3_599_999L)) check(false)
     }
     fun setAutoCheck(value: Boolean) { prefs.edit().putBoolean("auto_check", value).apply(); change { it.copy(autoCheck = value) } }
     fun setWifiDownload(value: Boolean) {
@@ -82,7 +82,7 @@ internal class AndroidUpdateManager private constructor(private val context: Con
         if (state.value.downloadId >= 0) return@action
         // 再次检查节流状态，避免多次前台事件排队后重复请求。
         val elapsed = System.currentTimeMillis() - prefs.getLong("last_attempt", 0)
-        if (!manual && elapsed in 0..86_399_999L) return@action
+        if (!manual && elapsed in 0..3_599_999L) return@action
         prefs.edit().putLong("last_attempt", System.currentTimeMillis()).apply()
         change { it.copy(checking = true, progress = null, error = null, status = "正在检查更新…") }
         val release = checkAndroidRelease(currentVersion, context.packageName)
