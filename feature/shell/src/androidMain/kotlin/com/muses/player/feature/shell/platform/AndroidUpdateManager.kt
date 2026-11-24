@@ -70,7 +70,11 @@ internal class AndroidUpdateManager private constructor(private val context: Con
         }
         val last = prefs.getLong("last_attempt", 0)
         val age = System.currentTimeMillis() - last
-        // 前台静默检查：每秒只做一次很轻的清单请求不值当，但 24 小时太长——发版后用户可能一天都收不到提示。\n        // 折中 1 小时；提示本身仍然按版本节流（同版本一天最多弹一次）。\n        if (state.value.autoCheck && (last == 0L || age !in 0..3_599_999L)) check(false)
+        // 前台静默检查：清单请求很轻，但 24 小时太长——发版后用户可能一天都收不到提示，折中 1 小时；
+        // 提示本身仍按版本节流（同版本一天最多弹一次）。
+        // 注意：这两行注释曾经被写成一个字面 "\n"，把下面的 if 一起吞进注释里，
+        // 导致自动检查彻底不执行（只剩手动点检查）。改这里请保持每行独立。
+        if (state.value.autoCheck && (last == 0L || age !in 0..3_599_999L)) check(false)
     }
     fun setAutoCheck(value: Boolean) { prefs.edit().putBoolean("auto_check", value).apply(); change { it.copy(autoCheck = value) } }
     fun setWifiDownload(value: Boolean) {
@@ -79,13 +83,31 @@ internal class AndroidUpdateManager private constructor(private val context: Con
         else if (prefs.getBoolean("download_automatic", false) && !state.value.ready) cancel()
     }
     fun check(manual: Boolean = true) = action(UpdateWork.CHECK, checkGate) {
-        if (state.value.downloadId >= 0) return@action
+        if (state.value.downloadId >= 0) {
+            // 之前有下载任务残留（取消/失败时系统没清掉）会永久挡住检查——先确认任务还在。
+            val id = state.value.downloadId
+            val alive = runCatching {
+                downloads.query(DownloadManager.Query().setFilterById(id)).use { it.moveToFirst() }
+            }.getOrElse { true }
+            if (alive) return@action
+            prefs.edit().remove("download_id").apply()
+            change { it.copy(downloadId = -1, progress = null) }
+        }
         // 再次检查节流状态，避免多次前台事件排队后重复请求。
         val elapsed = System.currentTimeMillis() - prefs.getLong("last_attempt", 0)
         if (!manual && elapsed in 0..3_599_999L) return@action
         prefs.edit().putLong("last_attempt", System.currentTimeMillis()).apply()
         change { it.copy(checking = true, progress = null, error = null, status = "正在检查更新…") }
-        val release = checkAndroidRelease(currentVersion, context.packageName)
+        val release = try {
+            checkAndroidRelease(currentVersion, context.packageName)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // 网络失败不应该占掉整小时的自动检查窗口：回拨到 55 分钟前，
+            // 5 分钟后回到前台会自动再试一次；同时也避免了频繁失败变请求风暴。
+            prefs.edit().putLong("last_attempt", System.currentTimeMillis() - 3_300_000L).apply()
+            throw e
+        }
         val time = System.currentTimeMillis()
         prefs.edit().putString("release", json.encodeToString(AndroidReleaseInfo.serializer(), release)).putLong("checked_at", time).apply()
         change { it.copy(release = release, checking = false, checkedAt = time,
